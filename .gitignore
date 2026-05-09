@@ -1,0 +1,33 @@
+# Microsoft Office lock/temp files
+~$*
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build / dist
+build/
+dist/
+*.egg-info/
