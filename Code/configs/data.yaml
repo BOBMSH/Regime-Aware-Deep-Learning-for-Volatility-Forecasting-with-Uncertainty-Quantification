@@ -1,0 +1,70 @@
+# Data pipeline configuration (Phase 1).
+# Values here are the canonical defaults; CLI flags can override individual fields.
+
+seed: 17
+
+# --- Sample window ----------------------------------------------------------
+window:
+  start: "2000-01-01"
+  end: "2024-12-31"
+
+# --- Assets -----------------------------------------------------------------
+assets:
+  primary: "^GSPC"            # S&P 500 -- every experiment runs here
+  vix: "^VIX"                 # treated as a feature, not a target
+  robustness:                 # baselines + best DL only (Phase 8)
+    - "AAPL"
+    - "TSLA"
+
+# --- Walk-forward splits ----------------------------------------------------
+# Anchored: train = [t0, t], predict t+1, expand window.
+# Refit cadence: monthly (~21 trading days) by default; weekly for DL by phase 3.
+splits:
+  train_end: "2019-12-31"     # all of 2000-2019 for initial training
+  val_start: "2020-01-01"     # COVID-19 window enters validation
+  val_end: "2021-12-31"
+  test_start: "2022-01-01"    # 2022 inflation/rates shock is a fresh stressor
+  test_end: "2024-12-31"
+  refit_frequency_days: 21    # ~ monthly trading days
+  scheme: "anchored"          # one of {anchored, rolling}
+
+# --- Realized-volatility targets -------------------------------------------
+realized_volatility:
+  # Primary target: Oxford-Man intraday RV (Andersen-Bollerslev-Diebold-Labys 2003 sense).
+  primary: "oxfordman_rv5"
+  # Sensitivity: Yang-Zhang OHLC RV, used only as a robustness check.
+  sensitivity: "yang_zhang"
+  # Diagnostic baseline only -- never the headline target.
+  diagnostic: "squared_returns"
+  # Annualization: dissertation reports daily-scale RV; figures may annualise sqrt(252).
+  annualize: false
+
+# --- Storage paths (relative to Code/) -------------------------------------
+paths:
+  raw: "data/raw"
+  interim: "data/interim"
+  processed: "data/processed"
+  oxfordman: "data/raw/oxfordman"
+  yfinance: "data/raw/yfinance"
+  results: "results"
+  figures: "results/figures"
+  tables: "results/tables"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  logs: "results/logs"
+
+# --- Oxford-Man Realized Library -------------------------------------------
+# The Oxford-Man Institute closed in 2022; the library is no longer actively
+# maintained but the canonical CSV is mirrored on the wayback machine and on
+# several academic GitHub repos. The ingestor tries each in order and falls back
+# to printing manual-download instructions.
+oxfordman:
+  filename: "oxfordmanrealizedvolatilityindices.csv"
+  # Primary index symbol used by the library for the S&P 500.
+  primary_symbol: ".SPX"
+  # `id_` suffix on the wayback timestamp returns the raw archived file with
+  # no wayback HTML wrapper. The 2022-03-01 snapshot is the last full capture
+  # before the Oxford-Man Institute closed.
+  candidate_urls:
+    - "https://web.archive.org/web/20220301022212id_/https://realized.oxford-man.ox.ac.uk/images/oxfordmanrealizedvolatilityindices.zip"
+    - "https://web.archive.org/web/20220301022212/https://realized.oxford-man.ox.ac.uk/images/oxfordmanrealizedvolatilityindices.zip"

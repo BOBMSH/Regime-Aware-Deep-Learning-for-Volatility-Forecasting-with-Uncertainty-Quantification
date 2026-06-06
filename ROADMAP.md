@@ -2,7 +2,7 @@
 ## Regime-Aware Deep Learning for Financial Volatility Forecasting with Uncertainty Quantification
 
 **Author:** Bob (University of Warwick, MSc Applied AI)
-**Last updated:** 2026-05-09
+**Last updated:** 2026-05-15
 **Target submission window:** ~12 weeks (≈ early August 2026)
 **Compute:** Local machine with GPU
 **Stack:** Python, PyTorch, pandas, numpy, scikit-learn, statsmodels, `arch`, `hmmlearn`
@@ -21,19 +21,23 @@ In 12 weeks with one researcher you cannot do everything. The plan below is buil
 
 These are decisions I am recommending up front because they will materially affect both the work and the defense. None are final — push back if you disagree.
 
-### 1.1 Daily data → "realized volatility proxy", not true RV
-True realized volatility (RV) is computed from *intraday* returns (e.g. 5-minute, summed over the day). With daily data only, you are computing one of:
+### 1.1 True realized volatility from intraday returns (Oxford-Man Realized Library)
+The dependent variable is daily realized volatility constructed from intraday returns in the sense of Andersen, Bollerslev, Diebold and Labys (2003) — the square-root of the sum of squared 5-minute log returns within each trading day. This is the canonical target in the modern volatility literature and the one Chapter 2 (Literature Review) commits to in §2.3.
 
-- **Rolling-window standard deviation of log returns** (most common as proxy)
-- **Squared daily log returns** as a single-day RV estimator (very noisy)
-- **Range-based estimators** (Parkinson, Garman-Klass, Yang-Zhang) using OHLC
+**Data source:** Oxford-Man Institute Realized Library — pre-cleaned 5-minute-aggregated realized variance series for the S&P 500 (and other major indices) from 2000 onwards, freely downloadable as CSV. Using a curated source removes the intraday data-cleaning overhead (microstructure noise, opening-auction handling, jump filtering) that would otherwise dominate Phase 1 and is not the methodological contribution of this dissertation.
 
-**Recommendation:** Use Yang-Zhang or Garman-Klass as your primary RV proxy (they exploit OHLC and are dramatically less noisy than squared returns), and a 21-day rolling σ̂ as a smoothed reference series. Be explicit in your writeup that your target is a *proxy* for RV, cite the canonical justification (Andersen & Bollerslev 1998 acknowledged squared returns are unbiased but noisy; Patton 2011 shows MSE/QLIKE remain consistent under noisy proxies), and note the limitation honestly.
+**Robustness checks:** report a Yang-Zhang OHLC-based RV estimator from yfinance daily data as a sensitivity exercise, demonstrating that headline conclusions are not artefacts of the realised-variance estimator. Cite Patton (2011) for proxy-robust loss functions (MSE, QLIKE), which justify the use of a noisy RV estimate without biasing the forecast comparison.
 
-### 1.2 Add HAR-RV as an econometric baseline
-GARCH(1,1) is the right baseline for *return* volatility, but for *realized* volatility forecasting the de-facto literature baseline is **HAR-RV** (Corsi 2009). It is essentially a linear regression on daily, weekly, and monthly lagged RV — trivially cheap, and it reliably beats GARCH on RV targets. Without HAR you will be asked in the viva why you didn't include it.
+*Changelog (2026-05-15):* this section originally specified OHLC-based proxies (Yang-Zhang, Garman-Klass, 21-day rolling σ̂) as the primary target, with intraday RV excluded from scope. The literature review committed to intraday RV in the Andersen-Bollerslev-Diebold-Labys sense, and the Oxford-Man Realized Library makes that target reachable within Phase 1 at modest cost; the scope was revised accordingly.
 
-**Recommendation:** Add HAR-RV alongside GARCH(1,1). Drop EGARCH unless time permits (it adds asymmetry but is rarely the winning baseline on RV).
+### 1.2 Econometric baselines: GARCH(1,1), EGARCH, HAR-RV
+Three econometric baselines, all confirmed:
+
+- **GARCH(1,1)** (Bollerslev 1986) — the canonical short-memory conditional-variance specification; required for comparison with any alternative.
+- **EGARCH** (Nelson 1991) — captures the leverage effect through an asymmetric variance equation. Included as a falsification check: a regime-aware deep model that beats GARCH(1,1) but not EGARCH may be capturing asymmetric shock responses rather than genuine regime-conditional non-linearity. This separation is methodologically central to RQ2.
+- **HAR-RV** (Corsi 2009) — the de-facto literature baseline on realized-volatility targets; a linear regression on daily, weekly, and monthly lagged RV that routinely matches or exceeds more elaborate specifications on equity RV. Without HAR-RV the viva will ask why.
+
+*Changelog (2026-05-15):* EGARCH was previously listed as optional / "only if time permits." It is now a confirmed baseline because the literature review's falsification argument is methodologically stronger than the time-budget reason originally given for dropping it; the marginal implementation cost on top of GARCH(1,1) via `arch` is negligible.
 
 ### 1.3 Walk-forward, anchored, with strict leakage discipline
 The single biggest threat to dissertation credibility in this area is data leakage. Three rules to enforce in code:
@@ -59,7 +63,7 @@ Drop deep ensembles unless you finish phases 1–4 ahead of schedule.
 
 Pin these in the dissertation; they're what every experiment must answer.
 
-**RQ1 — Performance.** Do deep learning models (LSTM) outperform econometric baselines (GARCH, HAR-RV) for daily realized-volatility-proxy forecasting on S&P 500, under leakage-free walk-forward evaluation, as measured by MSE / MAE / QLIKE?
+**RQ1 — Performance.** Do deep learning models (LSTM) outperform econometric baselines (GARCH(1,1), EGARCH, HAR-RV) for daily realized-volatility forecasting on S&P 500, under leakage-free walk-forward evaluation, as measured by QLIKE / MSE / MAE?
 
 **RQ2 — Regime-awareness.** Does conditioning forecasts on latent market regimes (HMM-detected) measurably improve forecast accuracy versus regime-agnostic equivalents, and is the improvement concentrated in transitional or crisis periods?
 
@@ -81,20 +85,21 @@ Each phase ends with a **milestone artifact**: a markdown note in `results/`, a 
 - **Gate:** `pytest -q` runs (even with one passing dummy test); `python -m src.data.ingest` downloads S&P 500 successfully
 
 ### Phase 1 — Data pipeline & EDA (Week 1, days 4–7)
-- yfinance ingestion for ^GSPC, ^VIX, AAPL, TSLA (2000-01-01 → 2025-12-31)
-- Implement realized-volatility proxies: Yang-Zhang, Garman-Klass, 21-day rolling σ̂, squared log returns
-- Train/val/test split with explicit dates; walk-forward index generator
-- EDA notebook: log returns, RV time series, autocorrelation, distribution, COVID/2008 markers
-- Unit tests for RV computations and split generators
-- **Gate:** Milestone note `results/m01_data.md` with 6 figures and a sanity-check table comparing RV proxies
+- **Oxford-Man Realized Library** ingestion for ^GSPC (2000-01-01 → 2024-12-31); cache locally to `data/raw/oxfordman/`; record snapshot date
+- yfinance ingestion for ^GSPC, ^VIX, AAPL, TSLA daily OHLC over the same window (for returns features, range-based RV sensitivity, and robustness assets)
+- Implement Yang-Zhang OHLC RV as a sensitivity check; squared daily returns retained only as a diagnostic baseline
+- Train/val/test split with explicit dates; anchored walk-forward index generator (training pre-2020, validation 2020–2021, test 2022–2024)
+- EDA notebook: log returns, intraday-RV time series, autocorrelation (ACF of RV — expect long memory), distribution, dot-com bust / 2008 GFC / COVID-19 / 2022 inflation markers
+- Unit tests for RV computations, OHLC RV sensitivity estimator, and split generators
+- **Gate:** Milestone note `results/m01_data.md` with 6 figures, an RV summary table, and a sanity-check comparison between Oxford-Man intraday RV and the Yang-Zhang OHLC sensitivity series
 
 ### Phase 2 — Econometric baselines (Week 2)
 - GARCH(1,1) via `arch`, fit-and-forecast wrapper with rolling refit
+- EGARCH via `arch` on the same harness (confirmed baseline; see §1.2)
 - HAR-RV implementation (linear regression on daily/weekly/monthly RV lags)
-- Optional: EGARCH (only if Phase 2 finishes Friday)
-- Evaluation harness: MSE, MAE, QLIKE losses, all coded with unit tests
+- Evaluation harness: MSE, MAE, QLIKE losses, all coded with unit tests; QLIKE adopted as primary metric per Patton (2011)
 - Rolling out-of-sample loop with monthly refit
-- **Gate:** `results/m02_econometric.md` with rolling-OOS error tables and a forecast-vs-actual figure for the test period
+- **Gate:** `results/m02_econometric.md` with rolling-OOS error tables and a forecast-vs-actual figure for the test period covering all three baselines
 
 ### Phase 3 — LSTM baseline (Weeks 3–4)
 - PyTorch `Dataset`/`DataLoader` for sliding windows
@@ -105,14 +110,14 @@ Each phase ends with a **milestone artifact**: a markdown note in `results/`, a 
 - **Gate:** `results/m03_lstm.md` with hyperparameter heatmap, learning curves, and head-to-head vs GARCH/HAR
 
 ### Phase 4 — Regime detection (Week 5)
-- HMM (`hmmlearn`) with Gaussian emissions
-  - Inputs: log returns + RV proxy (try both 1-feature and 2-feature)
-  - K = 2, 3, 4 states tested via BIC + interpretability
-- Regime visualization: states overlaid on price/RV with COVID-19, 2008 GFC, dot-com bust labels
-- Validation: do detected regimes correlate with VIX percentiles? (sanity check — should)
-- **Optional comparison:** K-means on rolling stats; Markov-switching GARCH (overkill — skip)
-- **Critical:** all HMM fits must be on the training window only at each walk-forward step
-- **Gate:** `results/m04_regimes.md` with regime maps and a confusion table vs VIX-quantile labels
+- Gaussian-emission HMM (`hmmlearn`) on standardised daily log returns (and RV as a 2-feature variant for ablation)
+- **Primary specification:** K=3 states (calm / transitional / crisis), aligned with the literature review's regime-narrative commitment in §2.4
+- **Sensitivity:** K=2 and K=4 reported with BIC and interpretability diagnostics
+- **State-persistence remedy — Nystrup, Lindstrom & Madsen (2020) jump penalty.** `hmmlearn` does not ship this; budget ~2–3 days within Phase 4 to either (a) port the Nystrup et al. reference implementation to Python or (b) implement the jump penalty as a regularised EM step on top of `hmmlearn`. The penalty parameter is selected by cross-validation on a held-out segment of the training window. *Fallback if implementation slips past Friday of Week 5:* report standard Baum-Welch HMM with state-persistence diagnostics, and soften the corresponding lit-review §2.4 commitment to "motivated by Nystrup et al. (2020)" rather than "adopts."
+- Regime visualisation: states overlaid on price/RV with dot-com bust, 2008 GFC, COVID-19, and 2022 inflation markers
+- Validation: detected regimes correlate with VIX percentiles (sanity check)
+- **Critical:** all HMM fits must be on the training window only at each walk-forward step; the regularisation parameter is also CV-selected on training-only data
+- **Gate:** `results/m04_regimes.md` with regime maps, BIC sensitivity table for K∈{2,3,4}, state-persistence statistics, and a confusion table vs VIX-quantile labels
 
 ### Phase 5 — Regime-aware models (Weeks 6–7)
 Two architectures, run head-to-head:
@@ -279,34 +284,34 @@ Once predictions are in parquet form (one column per model), every comparison �
 ## 6. Build order — what first vs later
 
 **Build first (non-negotiable):**
-1. Data ingestion + RV proxies + splits
+1. Data ingestion (Oxford-Man RV + yfinance OHLC) + Yang-Zhang sensitivity RV + splits
 2. Evaluation harness (metrics + walk-forward loop) — even before any model
-3. GARCH baseline (validates the harness against a known-good model)
-4. HAR-RV baseline
-5. LSTM baseline
+3. GARCH(1,1) baseline (validates the harness against a known-good model)
+4. EGARCH baseline (falsification check for asymmetric-response absorption)
+5. HAR-RV baseline
+6. LSTM baseline
 
 **Build second:**
-6. HMM regime detection (with leakage discipline)
-7. Regime-as-feature LSTM
-8. Regime-specific LSTM ensemble
+7. HMM regime detection with Nystrup et al. (2020) jump penalty, leakage discipline
+8. Regime-as-feature LSTM
+9. Regime-specific LSTM ensemble (mixture-of-experts gating)
 
 **Build third:**
-9. MC Dropout LSTM
-10. Quantile Regression LSTM
-11. Calibration metrics
+10. MC Dropout LSTM
+11. Quantile Regression LSTM with pinball loss
+12. Calibration metrics (PICP, MPIW, Winkler, CRPS)
 
 **Build only if time permits:**
-- EGARCH
 - Markov-switching GARCH
 - K-means regime comparison
 - Deep ensembles
 - Transformer / TFT
-- Multi-asset robustness on additional assets
+- Multi-asset robustness on additional assets beyond AAPL+TSLA
 
 **Cut from scope (push back if you really want any of these):**
-- Intraday RV (requires data sourcing not in scope)
 - Reinforcement learning, options pricing, portfolio optimization downstream tasks
 - Real-time / streaming infrastructure
+- Bespoke intraday cleaning pipeline (Oxford-Man provides curated RV; we do not re-derive it from tick data)
 
 ---
 
@@ -315,34 +320,45 @@ Once predictions are in parquet form (one column per model), every comparison �
 Read papers as you build, not all upfront. The list below is ordered by when it becomes relevant.
 
 ### Tier 1 — Read in Week 1 (foundations)
+- **Cont (2001)** — "Empirical properties of asset returns: stylized facts and statistical issues." *Quantitative Finance.* The empirical contract any volatility model must satisfy.
+- **Engle (1982)** — ARCH original. Frames the conditional-heteroskedasticity tradition that GARCH extends.
+- **Bollerslev (1986)** — "Generalized Autoregressive Conditional Heteroskedasticity." *Journal of Econometrics.* GARCH original — primary baseline.
+- **Nelson (1991)** — "Conditional Heteroskedasticity in Asset Returns: A New Approach." *Econometrica.* EGARCH original — second econometric baseline.
 - **Andersen & Bollerslev (1998)** — "Answering the Skeptics: Yes, Standard Volatility Models Do Provide Accurate Forecasts." *International Economic Review.* Foundational on using realized variance as evaluation target.
-- **Andersen, Bollerslev, Diebold, Labys (2003)** — "Modeling and Forecasting Realized Volatility." *Econometrica.* Where RV-as-target methodology is canonized.
-- **Bollerslev (1986)** — "Generalized Autoregressive Conditional Heteroskedasticity." *Journal of Econometrics.* GARCH original.
+- **Andersen, Bollerslev, Diebold, Labys (2003)** — "Modeling and Forecasting Realized Volatility." *Econometrica.* Where intraday-RV-as-target methodology is canonized — defines the dissertation's dependent variable.
 - **Corsi (2009)** — "A Simple Approximate Long-Memory Model of Realized Volatility." *Journal of Financial Econometrics.* HAR-RV original — must cite, must implement.
-- **Patton (2011)** — "Volatility forecast comparison using imperfect volatility proxies." *Journal of Econometrics.* Justifies why MSE and QLIKE are robust under noisy RV proxies — your *direct* methodological cover for using daily-frequency proxies.
+- **Hansen & Lunde (2005)** — "A Forecast Comparison of Volatility Models: Does Anything Beat a GARCH(1,1)?" *Journal of Applied Econometrics.* Sets the empirical bar any alternative must clear.
+- **Patton (2011)** — "Volatility forecast comparison using imperfect volatility proxies." *Journal of Econometrics.* QLIKE and MSE as proxy-robust losses.
 
 ### Tier 2 — Weeks 2–3 (LSTM and DL volatility)
 - **Hochreiter & Schmidhuber (1997)** — LSTM original.
+- **Lim & Zohren (2021)** — "Time-series forecasting with deep learning: a survey." *Phil. Trans. R. Soc. A.* Design-vocabulary reference for the dissertation; motivates the hybrid statistical-neural decomposition.
 - **Liu (2019)** — "Novel volatility forecasting using deep learning." Solid LSTM-vs-GARCH comparison.
-- **Bucci (2020)** — "Realized Volatility Forecasting with Neural Networks." *Journal of Financial Econometrics.* Most directly relevant comparison paper.
+- **Kim & Won (2018)** — "Forecasting the volatility of stock price index: a hybrid model integrating LSTM with multiple GARCH-type models." *Expert Syst. Appl.* Direct empirical precedent for LSTM+GARCH hybrids.
+- **Bucci (2020)** — "Realized Volatility Forecasting with Neural Networks." *Journal of Financial Econometrics.* Most directly relevant comparison paper on US equity RV.
 - **Christensen, Siggaard, Veliyev (2022)** — "A machine learning approach to volatility forecasting." Modern ML benchmark.
 
 ### Tier 3 — Weeks 4–5 (regimes)
 - **Hamilton (1989)** — "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle." *Econometrica.* Regime-switching foundational.
 - **Rabiner (1989)** — "A tutorial on hidden Markov models." Implementation reference.
+- **Nystrup, Lindstrom & Madsen (2020)** — "Learning hidden Markov models with persistent states by penalizing jumps." *Expert Syst. Appl.* Jump-penalised estimator adopted in Phase 4.
 - **Ang & Bekaert (2002)** — "Regime switches in interest rates." Methodologically canonical.
 - **Guidolin (2011)** — "Markov Switching Models in Empirical Finance." Survey.
 
 ### Tier 4 — Weeks 6–8 (uncertainty)
 - **Gal & Ghahramani (2016)** — "Dropout as a Bayesian Approximation." MC Dropout original.
+- **Engle & Manganelli (2004)** — "CAViaR: Conditional Autoregressive Value at Risk by Regression Quantiles." *J. Bus. Econ. Stat.* Methodological justification for pinball-loss quantile regression on financial sequences.
 - **Lakshminarayanan, Pritzel, Blundell (2017)** — "Simple and scalable predictive uncertainty estimation using deep ensembles." Useful even if you don't implement ensembles.
 - **Koenker & Bassett (1978)** — Quantile regression original.
 - **Wen et al. (2017)** — "A Multi-Horizon Quantile Recurrent Forecaster." Quantile RNN reference.
 - **Pearce et al. (2018)** — "High-Quality Prediction Intervals for Deep Learning." On PI calibration.
+- **Gneiting & Raftery (2007)** — "Strictly Proper Scoring Rules, Prediction, and Estimation." *JASA.* CRPS and Winkler score; canonical reference for evaluating probabilistic forecasts.
 
 ### Tier 5 — Week 10 (significance, writeup)
 - **Diebold & Mariano (1995)** — Comparing predictive accuracy.
+- **Giacomini & White (2006)** — "Tests of Conditional Predictive Ability." *Econometrica.* Refines DM for settings with persistent loss differentials — relevant given RV long-memory.
 - **Harvey, Leybourne, Newbold (1997)** — small-sample DM correction.
+- **Glosten, Jagannathan & Runkle (1993)** — GJR-GARCH; cited via Hansen-Lunde for asymmetric specifications.
 
 ---
 
@@ -357,9 +373,10 @@ Read papers as you build, not all upfront. The list below is ordered by when it 
 | 5 | Compute bottleneck on rolling refits | Low (you have local GPU) | Medium | Refit weekly/monthly not daily; cache predictions to parquet; use multiprocessing for HMM |
 | 6 | Scope creep (transformers, ensembles) | High | High | Cut list in §6 is binding until phase 7 done |
 | 7 | Reproducibility breaks before submission | Medium | High | Phase 9 fresh-checkout end-to-end run; pinned deps; saved seeds; saved configs per experiment |
-| 8 | Daily-frequency RV proxy critique in viva | High | Medium | Cite Patton (2011); justify Yang-Zhang choice; acknowledge limitation in Discussion |
-| 9 | yfinance API change / data gaps | Low | Medium | Cache raw downloads to `data/raw/`; never re-download once gathered; record snapshot date |
-| 10 | Personal: illness / time loss | Medium | High | Phase 7 ends end of week 10 so weeks 11–12 are buffer + writing — preserve them |
+| 8 | Nystrup jump-penalty implementation slips past Phase 4 budget | Medium | Medium | Fallback: standard Baum-Welch HMM with state-persistence diagnostics; soften lit-review §2.4 commitment to "motivated by Nystrup et al." rather than "adopts." Decide by end of Week 5 Friday. |
+| 9 | Oxford-Man Realized Library schema change / availability | Low | High | Cache raw downloads to `data/raw/oxfordman/` with snapshot date; never re-download once gathered; keep Yang-Zhang OHLC RV implemented as a fallback target if the curated source becomes unavailable |
+| 10 | yfinance API change / data gaps for return features and robustness assets | Low | Medium | Cache raw downloads to `data/raw/`; never re-download once gathered; record snapshot date |
+| 11 | Personal: illness / time loss | Medium | High | Phase 7 ends end of week 10 so weeks 11–12 are buffer + writing — preserve them |
 
 ---
 
@@ -380,22 +397,43 @@ Treat the following as non-negotiable from Phase 0 onwards:
 
 ## 10. Suggestions and open questions
 
-A few things I'd like your call on before we start coding:
+**Resolved (carried over from prior versions of this roadmap and the literature review):**
+- ~~HAR-RV as a baseline~~ — confirmed (§1.2).
+- ~~UQ scope: MC Dropout + Quantile Regression, no deep ensembles~~ — confirmed (§1.5).
+- ~~Robustness assets AAPL + TSLA, baselines + best DL only, Week 11~~ — confirmed (§1.4, Phase 8).
+- ~~Intraday RV via Oxford-Man Realized Library~~ — adopted 2026-05-15 (§1.1).
+- ~~EGARCH as confirmed second econometric baseline~~ — adopted 2026-05-15 (§1.2).
+- ~~HMM K=3 primary with K=2,4 BIC sensitivity, Nystrup et al. (2020) jump penalty~~ — adopted 2026-05-15 (§Phase 4).
 
-1. **Time period.** I'd default to 2000-01-01 → 2024-12-31 (covers dot-com bust, GFC, Euro crisis, COVID, 2022 inflation regime — enough crisis variety for RQ2). Acceptable, or do you want a different window?
+**Still open:**
+
+1. **Time period.** Default 2000-01-01 → 2024-12-31 (covers dot-com bust, GFC, Euro crisis, COVID, 2022 inflation — enough crisis variety for RQ2). Acceptable, or do you want a different window?
 
 2. **Test split.** Suggest training pre-2020, validation 2020–2021, test 2022–2024. The test set thus contains the 2022 inflation/rates shock — a non-COVID stressor distinct from the training window. Anchored walk-forward then expands across the test period. Good?
 
-3. **HAR-RV.** Confirming you're happy to add it as a baseline (it's important; see §1.2).
+3. **Supervisor cadence.** Are you meeting your supervisor weekly / fortnightly? I want to slot supervisor checkpoints into the milestones — usually after Phases 2, 5, and 7.
 
-4. **UQ scope.** Confirming MC Dropout (primary) + Quantile Regression (comparison), dropping deep ensembles unless we have time. OK?
+4. **Nystrup implementation route.** Port the reference R implementation to Python, or implement the jump penalty as a regularised EM step on top of `hmmlearn`? The latter is faster but less faithful; the former takes longer but is auditable against the published algorithm. Decide at the start of Phase 4.
 
-5. **Robustness assets.** AAPL + TSLA, baselines + best DL only, in Week 11. OK or different choice?
-
-6. **Supervisor cadence.** Are you meeting your supervisor weekly / fortnightly? I want to slot supervisor checkpoints into the milestones — usually after Phases 2, 5, and 7.
-
-Answer those when convenient and I'll lock the plan, write Phase 0 setup files (`pyproject.toml`, `.gitignore`, folder skeleton, base configs, seed/util modules, harness stubs, the first unit tests), and we move into Phase 1.
+Answer those when convenient and we move into Phase 1.
 
 ---
 
-*End of roadmap. This file is the canonical source of plan-of-record. Update it (with dated changelog entries at the bottom) whenever scope changes.*
+## Changelog
+
+**2026-05-15 — Alignment with Chapter 2 (Literature Review v2).**
+Following completion of the literature review, the roadmap was updated to absorb the chapter's stronger methodological commitments. Concretely:
+- §1.1 — Target variable switched from OHLC-based proxies (Yang-Zhang, Garman-Klass, 21-day rolling σ̂) to intraday-derived realized volatility in the Andersen-Bollerslev-Diebold-Labys (2003) sense. Data source: Oxford-Man Institute Realized Library. Yang-Zhang OHLC RV retained as a sensitivity check.
+- §1.2 — EGARCH (Nelson 1991) promoted from "optional, only if time permits" to confirmed second econometric baseline, on the literature review's falsification argument (separating regime-conditional non-linearity from absorbed asymmetric responses).
+- §2 — RQ1 wording updated to name GARCH(1,1), EGARCH, HAR-RV explicitly.
+- Phase 1 — Data pipeline rewritten around Oxford-Man + yfinance OHLC; Yang-Zhang becomes a sensitivity, not the primary target.
+- Phase 2 — EGARCH promoted into the confirmed-baseline list.
+- Phase 4 — HMM specification fixed at K=3 primary (calm/transitional/crisis) with K=2,4 BIC sensitivity; Nystrup, Lindstrom & Madsen (2020) jump-penalised estimator adopted with a documented fallback if implementation slips.
+- §6 — Build order updated; "Intraday RV" removed from the cut list; "bespoke intraday cleaning pipeline" added in its place.
+- §7 — Reading roadmap expanded to include Cont (2001), Hansen-Lunde (2005), Lim-Zohren (2021), Nystrup et al. (2020), Engle-Manganelli (2004), Gneiting-Raftery (2007), Giacomini-White (2006), Kim-Won (2018), and other lit-review citations.
+- §8 — Risk #8 retired (no longer applicable now that RV is intraday); replaced with implementation risk on the Nystrup jump penalty and a data-availability risk on Oxford-Man.
+- §10 — Resolved questions struck through; one new open question on Nystrup implementation route.
+
+---
+
+*End of roadmap. This file is the canonical source of plan-of-record. Update it (with dated changelog entries above) whenever scope changes.*
