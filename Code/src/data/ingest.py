@@ -244,13 +244,15 @@ def load_oxfordman_symbol(csv_path: Path | str, symbol: str = ".SPX") -> pd.Data
             f"Symbol {symbol!r} not found in Oxford-Man CSV; first 25 available: {available}"
         )
 
-    # The library mixes timezone offsets across rows (some +00:00, some
-    # US-Eastern). Parsing as UTC and then normalising to midnight collapses
-    # every row to a pure trading *date*, which is what daily RV needs --
-    # otherwise tz artefacts leave spurious intraday timestamps that break
-    # alignment with the daily yfinance series.
-    parsed = pd.to_datetime(sub[date_col], utc=True, errors="coerce")
-    sub[date_col] = parsed.dt.tz_convert(None).dt.normalize()
+    # Oxford-Man timestamps carry the London-local session date with a +00:00
+    # (GMT, winter) or +01:00 (BST, summer) offset. Converting to UTC first
+    # (utc=True) drags every BST row back across midnight to the previous
+    # calendar day -- mis-dating ~59% of rows and pushing ~600 onto non-trading
+    # Sundays, which then break alignment with the daily yfinance return series.
+    # The daily RV date is just the local calendar date, so take the leading
+    # YYYY-MM-DD and ignore the intra-day time and offset entirely.
+    date_str = sub[date_col].astype(str).str.slice(0, 10)
+    sub[date_col] = pd.to_datetime(date_str, format="%Y-%m-%d", errors="coerce")
     sub = sub.dropna(subset=[date_col]).set_index(date_col).sort_index()
     sub = sub[~sub.index.duplicated(keep="first")]
     sub.index.name = "date"

@@ -143,3 +143,63 @@ def realized_vol_from_intraday_rv(
     if annualize:
         rv2 = rv2 * TRADING_DAYS_PER_YEAR
     return np.sqrt(rv2).rename("rv_intraday")
+
+
+def realized_variance_intraday(
+    prices: pd.Series,
+    *,
+    resample_freq: str | None = "5min",
+    subsample_grids: int = 1,
+    min_intraday_obs: int = 2,
+    squared: bool = True,
+    annualize: bool = False,
+) -> pd.Series:
+    """Daily realized variance from intraday prices (Andersen-Bollerslev-Diebold-
+    Labys 2003): the sum of squared intraday log returns within each trading day.
+
+    Consumes already-cleaned intraday *bars* (5-minute / 1-minute closes), not raw
+    ticks (ROADMAP sec6). Used to extend Oxford-Man rv5 past 2022-02-25; see
+    src.data.intraday.
+    """
+    if subsample_grids < 1:
+        raise ValueError("subsample_grids must be >= 1")
+    prices = prices.astype(float).dropna()
+    if not isinstance(prices.index, pd.DatetimeIndex):
+        prices.index = pd.to_datetime(prices.index)
+    prices = prices.sort_index()
+    if prices.index.tz is not None:
+        prices.index = prices.index.tz_convert(None)
+
+    log_p = np.log(prices)
+    day = log_p.index.normalize()
+
+    def _rv_on_grid(offset: int) -> pd.Series:
+        if resample_freq is not None:
+            shifted = log_p.copy()
+            if offset:
+                shifted.index = shifted.index + pd.Timedelta(minutes=offset)
+            sampled = shifted.groupby(shifted.index.normalize()).resample(resample_freq).last()
+            sampled = sampled.dropna()
+            sampled.index = sampled.index.get_level_values(-1)
+            g = sampled.groupby(sampled.index.normalize())
+        else:
+            g = log_p.groupby(day)
+        rv = g.apply(lambda s: np.square(s.sort_index().diff().dropna()).sum())
+        counts = g.apply(lambda s: s.dropna().shape[0] - 1)
+        rv = rv.where(counts >= min_intraday_obs)
+        return rv
+
+    if subsample_grids == 1:
+        rv2 = _rv_on_grid(0)
+    else:
+        base_min = pd.Timedelta(resample_freq or "5min").total_seconds() / 60.0
+        offsets = [int(round(k * base_min / subsample_grids)) for k in range(subsample_grids)]
+        grids = [_rv_on_grid(o) for o in offsets]
+        rv2 = pd.concat(grids, axis=1).mean(axis=1)
+
+    rv2 = rv2.dropna().clip(lower=0.0)
+    rv2.index = pd.DatetimeIndex(rv2.index)
+    rv2.index.name = "date"
+    if annualize:
+        rv2 = rv2 * TRADING_DAYS_PER_YEAR
+    return (rv2 if squared else np.sqrt(rv2)).rename("rv5")

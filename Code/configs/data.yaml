@@ -4,6 +4,9 @@
 seed: 17
 
 # --- Sample window ----------------------------------------------------------
+# Raw yfinance pull spans 2000-2024 (feeds the Yang-Zhang diagnostic + robustness
+# assets). The PRIMARY target (Oxford-Man intraday RV) and all headline analysis
+# end at 2022-02-25 -- the final dataset boundary. See splits below.
 window:
   start: "2000-01-01"
   end: "2024-12-31"
@@ -19,12 +22,16 @@ assets:
 # --- Walk-forward splits ----------------------------------------------------
 # Anchored: train = [t0, t], predict t+1, expand window.
 # Refit cadence: monthly (~21 trading days) by default; weekly for DL by phase 3.
+# FINAL SCOPE (decision 2026-07): the modelling target is Oxford-Man intraday
+# RV, whose .SPX coverage ends 2022-02-25; the 2022-2024 extension was abandoned
+# (no free intraday source). These canonical defaults are aligned to the headline
+# profile; Phase 2 profiles still set their own splits in configs/econometric.yaml.
 splits:
-  train_end: "2019-12-31"     # all of 2000-2019 for initial training
-  val_start: "2020-01-01"     # COVID-19 window enters validation
-  val_end: "2021-12-31"
-  test_start: "2022-01-01"    # 2022 inflation/rates shock is a fresh stressor
-  test_end: "2024-12-31"
+  train_end: "2015-12-31"     # 2000-2015 initial training
+  val_start: "2016-01-01"
+  val_end: "2018-12-31"
+  test_start: "2019-01-01"    # test 2019 -> Feb 2022; COVID-19 crash is the OOS stressor
+  test_end: "2022-02-25"      # Oxford-Man .SPX coverage boundary (final)
   refit_frequency_days: 21    # ~ monthly trading days
   scheme: "anchored"          # one of {anchored, rolling}
 

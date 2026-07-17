@@ -65,3 +65,25 @@ def test_missing_symbol_raises(oxfordman_csv):
 def test_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_oxfordman_symbol(tmp_path / "absent.csv", symbol=".SPX")
+
+
+def test_bst_summer_dates_are_not_shifted(tmp_path):
+    """Regression guard for the 2026-07 date bug.
+
+    Oxford-Man timestamps carry a +01:00 (BST) offset in summer. A ``utc=True``
+    parse converts them to 23:00 UTC on the previous day and then normalises to
+    the WRONG calendar date (Monday 2020-06-01 -> Sunday 2020-05-31). The loader
+    must keep the local session date instead. The other fixtures only use +00:00
+    winter rows, so this BST case previously went untested.
+    """
+    csv = tmp_path / "oxfordmanrealizedvolatilityindices.csv"
+    rows = [",Symbol,rv5,medrv"]
+    for d in ("2020-06-01", "2020-06-02", "2020-06-03"):  # Mon/Tue/Wed, BST (+01:00)
+        rows.append(f"{d} 00:00:00+01:00,.SPX,0.00012,0.00010")
+    rows.append("2020-01-06 00:00:00+00:00,.SPX,0.00013,0.00010")  # winter (+00:00)
+    csv.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    df = load_oxfordman_symbol(csv, symbol=".SPX")
+    got = list(df.index.strftime("%Y-%m-%d"))
+    assert got == ["2020-01-06", "2020-06-01", "2020-06-02", "2020-06-03"], got
+    assert (df.index.dayofweek < 5).all()  # no BST row pushed onto a weekend

@@ -1,0 +1,85 @@
+# Phase 2 -- econometric baselines configuration (ROADMAP.md Phase 2).
+# Run with:  python -m src.experiments.run_econometric
+#
+# Data paths, the sample window and the Oxford-Man settings are inherited from
+# configs/data.yaml; this file only carries Phase-2 run settings.
+
+seed: 17
+
+# --- Models to run (order preserved in tables) ------------------------------
+models:
+  garch:                       # GARCH(1,1) -- Bollerslev (1986), primary baseline
+    enabled: true
+    dist: normal               # normal (canonical) | t (fat-tailed robustness, Ch2 sec2.2)
+    p: 1
+    q: 1
+  egarch:                      # EGARCH(1,1,1) -- Nelson (1991), leverage / falsification check
+    enabled: true
+    dist: normal
+    p: 1
+    o: 1
+    q: 1
+  har:                         # HAR-RV -- Corsi (2009), the RV benchmark to beat
+    enabled: true
+    transform: level           # level (Corsi original) | log (right-skew robustness)
+  naive_rw:                    # Random-walk-in-variance reference floor (not a baseline)
+    enabled: true
+
+# --- Shared walk-forward harness -------------------------------------------
+harness:
+  # 'oc_log_return' (open-to-close) is the fair match for the open-to-close intraday
+  # rv5 target: close-to-close 'log_return' embeds the overnight gap (~40% more variance),
+  # a level mismatch the ratio-based QLIKE penalises. Only GARCH/EGARCH use this column;
+  # HAR-RV and RW-RV read the RV target directly. Use 'log_return' for the close-to-close
+  # standard GARCH input. See datasets.build_econometric_frame.
+  return_col: oc_log_return
+  scale: 100.0                 # returns * 100 (percent) for arch numerical stability
+  refit_frequency_days: 21     # monthly refit (ROADMAP Phase 2)
+  scheme: anchored             # anchored (expanding) | rolling (fixed-length)
+  eval_segment: test
+
+# --- Evaluation profiles ----------------------------------------------------
+# Each profile is an independent (target, window) run. The HEADLINE profile uses
+# the canonical intraday RV target (ABDL 2003) on its native coverage window,
+# putting the COVID-19 crash in the test set. The Yang-Zhang profile is a
+# TARGET-VALIDITY DIAGNOSTIC, not a result (see its description).
+#
+# FINAL SCOPE (decision 2026-07): the dataset ends at the Oxford-Man intraday RV
+# coverage boundary, 2022-02-25. The roadmap's 2022-2024 extension via a
+# reconstructed 5-minute splice was abandoned -- no free 2022-2024 intraday source
+# was available. The headline profile below therefore runs on the canonical
+# intraday target over its native window (test 2019 -> Feb 2022), with the
+# COVID-19 crash as the out-of-sample stressor.
+profiles:
+  - name: intraday_2019_2022
+    headline: true
+    target: oxfordman_rv5
+    description: "Oxford-Man intraday rv5 (canonical ABDL target); anchored walk-forward; test 2019-01 -> 2022-02-25 with the COVID-19 crash as the headline out-of-sample stressor."
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+  - name: yang_zhang_diagnostic
+    headline: false
+    target: yang_zhang
+    description: "TARGET-VALIDITY DIAGNOSTIC (not a result). Yang-Zhang OHLC RV over the same window. Its 21-day rolling smoothing pushes the target's lag-1 autocorrelation to ~0.996, which trivialises persistence models (random walk, HAR) and inflates GARCH error by ~20x. Included to justify why a genuine daily intraday RV target is required."
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+  # (Removed) intraday_spliced_2022_2024 -- the 2022-2024 splice extension was
+  # abandoned; no free intraday data source was found. 2000-2022 is the final scope.
+
+# --- Output paths (mirror data.yaml; results are the single source of truth) -
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  experiments: "experiments"
