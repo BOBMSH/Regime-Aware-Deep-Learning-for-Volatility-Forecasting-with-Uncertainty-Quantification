@@ -1,0 +1,79 @@
+# Phase 3 -- LSTM baseline configuration (ROADMAP.md Phase 3).
+# Run with:  python -m src.experiments.run_lstm
+#
+# Data paths, the sample window and the Oxford-Man settings are inherited from
+# configs/data.yaml; this file carries the Phase-3 run settings only. The LSTM is
+# scored on the SAME splits and metrics as the Phase 2 econometric baselines so
+# the head-to-head (RQ1) is apples-to-apples.
+
+seed: 17
+
+# --- Network + optimisation (the "chosen" config; the sweep may override the
+#     three swept fields below on the validation segment) ----------------------
+model:
+  features: [log_rv, oc_log_return]   # RV history (as HAR) + the day's open-to-close return
+  lookback: 20                        # trading-day window fed to the LSTM
+  hidden_size: 64
+  num_layers: 1                       # roadmap: 1-2 layers
+  dropout: 0.1                        # head-level dropout (reused by the Phase 6 MC-Dropout variant)
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 150
+  patience: 15                        # early stopping on a time-ordered inner-val tail
+  grad_clip: 1.0
+  val_fraction: 0.15                  # inner-validation tail used for early stopping
+  smearing: true                      # log-normal (Duan 1983) bias correction to the variance forecast
+
+# --- Hyperparameter sweep on the VALIDATION segment (roadmap Phase 3) ---------
+# Each combination is trained on the train split and scored (QLIKE) on the
+# validation split; the best combination is then run through the test walk-forward.
+sweep:
+  enabled: true
+  hidden_size: [32, 64, 128]
+  lookback: [10, 20, 40]
+  lr: [1.0e-3, 1.0e-4]
+
+# --- Robustness: isolate architecture from inputs ----------------------------
+# The main LSTM uses RV history AND the day's return (a superset of any single
+# baseline's inputs). To attribute a win over HAR-RV to the ARCHITECTURE rather
+# than the extra return feature (Ch1 sec1.5 objective ii; RQ1), also run an
+# identical-hyperparameter LSTM restricted to RV-history-only inputs -- HAR-RV's
+# exact information set -- and report it as a robustness row.
+robustness:
+  rv_only_lstm: true
+  rv_only_features: [log_rv]
+
+# --- Walk-forward harness ----------------------------------------------------
+harness:
+  # Refit cadence for the LSTM across the test window:
+  #   0     -> train ONCE on all pre-test data, reuse across the OOS window
+  #            (standard, stable, cheap baseline; recommended default).
+  #   k>=1  -> retrain every k folds on the expanding window (1 == econometric cadence).
+  refit_every_folds: 0
+  refit_frequency_days: 21   # test-fold cadence (matches Phase 2 monthly folds)
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profile ------------------------------------------------------
+profiles:
+  - name: intraday_2019_2022
+    headline: true
+    target: oxfordman_rv5
+    description: "Oxford-Man intraday rv5 (canonical ABDL target); LSTM vs the Phase 2 econometric baselines on the identical anchored walk-forward; test 2019-01 -> 2022-02-25 with the COVID-19 crash out-of-sample."
+    # Phase 2 predictions used for the head-to-head (must be the same target/window).
+    baseline_predictions: "results/predictions/m02_intraday_2019_2022.parquet"
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+# --- Output paths ------------------------------------------------------------
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  experiments: "experiments"
