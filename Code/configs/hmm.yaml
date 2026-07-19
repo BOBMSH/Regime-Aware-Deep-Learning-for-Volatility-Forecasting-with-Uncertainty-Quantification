@@ -1,0 +1,82 @@
+# Phase 4 -- regime detection configuration (ROADMAP.md Phase 4; Ch2 sec2.4).
+# Run with:  python -m src.experiments.run_regimes
+#
+# Data paths, the sample window and the Oxford-Man settings are inherited from
+# configs/data.yaml; this file carries the Phase-4 run settings only.
+#
+# Two unsupervised regime detectors are fit on the SAME feature (Ch2 sec2.4):
+#   * a Gaussian-emission HMM (Baum-Welch)            -- Hamilton (1989)
+#   * the Nystrup et al. (2020) jump-penalised model  -- persistent-state remedy
+# The pre-registered emission (Ch2 sec2.4) is a Gaussian over STANDARDISED DAILY
+# LOG RETURNS; a returns+log-RV set is carried as a richer-emission robustness
+# ablation only.
+
+seed: 17
+
+# --- Feature sets (standardised; train-only scaling for the causal pipeline) --
+features:
+  primary: returns            # (ret,) -- the pre-registered emission (Ch2 sec2.4)
+  ablation: returns_logrv     # (ret, log_rv) -- richer-emission robustness check
+  standardize: true
+
+# --- Regime models -----------------------------------------------------------
+models:
+  hmm:                        # Gaussian-emission HMM (Baum-Welch)
+    enabled: true
+    covariance_type: full     # full | diag (matched in the BIC parameter count)
+    n_init: 12                # EM restarts; highest-likelihood fit kept
+    n_iter: 200
+    tol: 1.0e-4
+  jump:                       # Nystrup-Lindstrom-Madsen (2020) jump model
+    enabled: true
+    n_init: 12                # coordinate-descent restarts; lowest-objective kept
+    max_iter: 40
+
+# --- Number of regimes (kept small + interpretable: calm/transitional/crisis) -
+# BIC selects K; the sweep is reported for sensitivity (Ch2 sec2.4, Guidolin 2011).
+k_grid: [2, 3, 4]
+
+# --- Jump penalty (tuned, not set a priori: Ch2 sec2.4 / Nystrup 2020) --------
+# lambda governs the persistence bias-variance trade-off; the sweep is reported
+# and a target-persistence value is chosen for the headline jump-model map.
+jump_penalty_grid: [1.0, 3.0, 10.0, 30.0, 100.0, 300.0]
+jump_penalty: 30.0            # headline lambda (overridden if select_by_persistence)
+select_by_persistence:
+  enabled: true
+  min_mean_duration_days: 15  # shortest acceptable average regime length
+
+# --- External validation: VIX-quantile confusion -----------------------------
+# A regime map that means anything should line up with the VIX: the calm state on
+# low-VIX days, the crisis state on high-VIX days. Cross-tabulate the decoded
+# state against VIX quantile bins (K bins to match K states).
+vix_validation:
+  enabled: true
+
+# --- Causal (leakage-free) demonstration -------------------------------------
+# The descriptive regime map is fit in-sample on the full history (standard for
+# regime characterisation). Separately, fit on the training split only and filter
+# causally over the test window -- the pipeline Phase 5 consumes -- and compare
+# smoothed vs filtered posteriors to show where look-ahead would matter.
+causal_demo:
+  enabled: true
+  splits:                     # identical to Phase 2/3 (configs/econometric.yaml)
+    train_end: "2015-12-31"
+    val_start: "2016-01-01"
+    val_end: "2018-12-31"
+    test_start: "2019-01-01"
+    test_end: "2022-02-25"
+
+# --- Evaluation profile ------------------------------------------------------
+profiles:
+  - name: intraday_2019_2022
+    headline: true
+    target: oxfordman_rv5
+    description: "Regime detection on S&P 500 daily data over the Oxford-Man rv5 coverage (2000 -> 2022-02-25). HMM + Nystrup jump model on standardised daily log returns; K in {2,3,4} by BIC; VIX-quantile external validation; smoothed (descriptive) and causal-filtered (Phase-5) posteriors."
+
+# --- Output paths (mirror the other phases; results are the source of truth) --
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  experiments: "experiments"
