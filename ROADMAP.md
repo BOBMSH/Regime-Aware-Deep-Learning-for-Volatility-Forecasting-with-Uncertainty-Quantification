@@ -2,10 +2,11 @@
 ## Regime-Aware Deep Learning for Financial Volatility Forecasting with Uncertainty Quantification
 
 **Author:** Bob (University of Warwick, MSc Applied AI)
-**Last updated:** 2026-05-15
+**Last updated:** 2026-07-19
 **Target submission window:** ~12 weeks (≈ early August 2026)
 **Compute:** Local machine with GPU
 **Stack:** Python, PyTorch, pandas, numpy, scikit-learn, statsmodels, `arch`, `hmmlearn`
+**Status:** Phases 0–4 complete — milestones `m01`–`m04` on disk, 126/126 unit tests green, and the committed prediction parquets reproduce the milestone numbers. **Phase 5 (regime-aware models) is next.** Final data scope is **2000-01-03 → 2022-02-25** (the Oxford-Man `.SPX` coverage boundary); the originally-planned 2022–2024 intraday extension was abandoned (no free intraday source). See the 2026-07-19 changelog entry at the foot of this file.
 
 ---
 
@@ -77,23 +78,23 @@ Pin these in the dissertation; they're what every experiment must answer.
 
 Each phase ends with a **milestone artifact**: a markdown note in `results/`, a tagged git commit, and at least one figure or table. Treat milestones as gates — don't start the next phase until the gate is passed.
 
-### Phase 0 — Setup (Days 1–3)
+### Phase 0 — Setup (Days 1–3)  ·  ✅ **DONE**
 - Initialize git repo, virtualenv, project structure (see §4)
 - `requirements.txt` / `pyproject.toml` with pinned versions
 - Logging + seeding utilities; reproducibility skeleton
 - README stub
 - **Gate:** `pytest -q` runs (even with one passing dummy test); `python -m src.data.ingest` downloads S&P 500 successfully
 
-### Phase 1 — Data pipeline & EDA (Week 1, days 4–7)
-- **Oxford-Man Realized Library** ingestion for ^GSPC (2000-01-01 → 2024-12-31); cache locally to `data/raw/oxfordman/`; record snapshot date
-- yfinance ingestion for ^GSPC, ^VIX, AAPL, TSLA daily OHLC over the same window (for returns features, range-based RV sensitivity, and robustness assets)
+### Phase 1 — Data pipeline & EDA (Week 1, days 4–7)  ·  ✅ **DONE** (`results/milestones/m01_data.md`)
+- **Oxford-Man Realized Library** ingestion for ^GSPC (`.SPX` intraday rv5, **2000-01-03 → 2022-02-25** — the library's coverage boundary and the final sample end); cached to `data/raw/oxfordman/` with snapshot date
+- yfinance ingestion for ^GSPC, ^VIX, AAPL, TSLA daily OHLC over 2000–2024 (for returns features, the Yang-Zhang RV sensitivity, and robustness assets)
 - Implement Yang-Zhang OHLC RV as a sensitivity check; squared daily returns retained only as a diagnostic baseline
-- Train/val/test split with explicit dates; anchored walk-forward index generator (training pre-2020, validation 2020–2021, test 2022–2024)
+- Train/val/test split with explicit dates; anchored walk-forward index generator — **final splits: train ≤ 2015-12-31, validation 2016–2018, test 2019-01-01 → 2022-02-25** (the COVID-19 crash is the headline out-of-sample stressor)
 - EDA notebook: log returns, intraday-RV time series, autocorrelation (ACF of RV — expect long memory), distribution, dot-com bust / 2008 GFC / COVID-19 / 2022 inflation markers
 - Unit tests for RV computations, OHLC RV sensitivity estimator, and split generators
 - **Gate:** Milestone note `results/m01_data.md` with 6 figures, an RV summary table, and a sanity-check comparison between Oxford-Man intraday RV and the Yang-Zhang OHLC sensitivity series
 
-### Phase 2 — Econometric baselines (Week 2)
+### Phase 2 — Econometric baselines (Week 2)  ·  ✅ **DONE** — HAR-RV wins (QLIKE 0.2745) < GARCH 0.3302 < EGARCH 0.3328 < RW-RV 0.3584 (`m02_econometric.md`)
 - GARCH(1,1) via `arch`, fit-and-forecast wrapper with rolling refit
 - EGARCH via `arch` on the same harness (confirmed baseline; see §1.2)
 - HAR-RV implementation (linear regression on daily/weekly/monthly RV lags)
@@ -101,7 +102,7 @@ Each phase ends with a **milestone artifact**: a markdown note in `results/`, a 
 - Rolling out-of-sample loop with monthly refit
 - **Gate:** `results/m02_econometric.md` with rolling-OOS error tables and a forecast-vs-actual figure for the test period covering all three baselines
 
-### Phase 3 — LSTM baseline (Weeks 3–4)
+### Phase 3 — LSTM baseline (Weeks 3–4)  ·  ✅ **DONE** — best LSTM (RV-only) QLIKE 0.2596 < HAR-RV 0.2745; DM p≈0.081 (not yet significant) (`m03_lstm.md`)
 - PyTorch `Dataset`/`DataLoader` for sliding windows
 - Vanilla LSTM regressor (1–2 layers, dropout, MSE loss)
 - Hyperparameter sweep on validation: hidden size {32, 64, 128}, lookback {10, 20, 40}, lr {1e-3, 1e-4}
@@ -109,7 +110,7 @@ Each phase ends with a **milestone artifact**: a markdown note in `results/`, a 
 - Direct comparison vs Phase 2 baselines on identical splits
 - **Gate:** `results/m03_lstm.md` with hyperparameter heatmap, learning curves, and head-to-head vs GARCH/HAR
 
-### Phase 4 — Regime detection (Week 5)
+### Phase 4 — Regime detection (Week 5)  ·  ✅ **DONE** — HMM + Nystrup jump model, K=3; VIX Spearman 0.789; leakage-free causal filtered posterior built as the Phase-5 input (`m04_regimes.md`)
 - Gaussian-emission HMM (`hmmlearn`) on standardised daily log returns (and RV as a 2-feature variant for ablation)
 - **Primary specification:** K=3 states (calm / transitional / crisis), aligned with the literature review's regime-narrative commitment in §2.4
 - **Sensitivity:** K=2 and K=4 reported with BIC and interpretability diagnostics
@@ -119,7 +120,7 @@ Each phase ends with a **milestone artifact**: a markdown note in `results/`, a 
 - **Critical:** all HMM fits must be on the training window only at each walk-forward step; the regularisation parameter is also CV-selected on training-only data
 - **Gate:** `results/m04_regimes.md` with regime maps, BIC sensitivity table for K∈{2,3,4}, state-persistence statistics, and a confusion table vs VIX-quantile labels
 
-### Phase 5 — Regime-aware models (Weeks 6–7)
+### Phase 5 — Regime-aware models (Weeks 6–7)  ·  ⏭️ **NEXT**
 Two architectures, run head-to-head:
 - **Approach A — Regime as feature:** append one-hot regime (or posterior probabilities) to LSTM input vector
 - **Approach B — Regime-specific experts:** train one LSTM per regime, route via current regime posterior at inference (mixture-of-experts gating)
@@ -404,18 +405,15 @@ Treat the following as non-negotiable from Phase 0 onwards:
 - ~~Intraday RV via Oxford-Man Realized Library~~ — adopted 2026-05-15 (§1.1).
 - ~~EGARCH as confirmed second econometric baseline~~ — adopted 2026-05-15 (§1.2).
 - ~~HMM K=3 primary with K=2,4 BIC sensitivity, Nystrup et al. (2020) jump penalty~~ — adopted 2026-05-15 (§Phase 4).
+- ~~Time period / sample window~~ — **finalised 2026-07-19:** 2000-01-03 → 2022-02-25 (Oxford-Man `.SPX` coverage boundary; the 2022–2024 intraday extension was abandoned for lack of a free source).
+- ~~Test split~~ — **finalised 2026-07-19:** train ≤ 2015-12-31, validation 2016–2018, test 2019-01-01 → 2022-02-25 (anchored walk-forward, ~monthly refit). Supersedes the earlier "train pre-2020 / val 2020–21 / test 2022–24" suggestion.
+- ~~Nystrup implementation route~~ — **resolved 2026-07-19:** implemented as a jump-penalised estimator in `src/models/regime/jump.py` (λ tuned by a persistence sweep); the Phase-4 fallback (Risk #8) was not needed, so Ch2 §2.4 "adopts" the estimator as written.
 
 **Still open:**
 
-1. **Time period.** Default 2000-01-01 → 2024-12-31 (covers dot-com bust, GFC, Euro crisis, COVID, 2022 inflation — enough crisis variety for RQ2). Acceptable, or do you want a different window?
+1. **Supervisor cadence.** Are you meeting your supervisor weekly / fortnightly? Supervisor checkpoints slot naturally into the milestones — usually after Phases 2, 5, and 7.
 
-2. **Test split.** Suggest training pre-2020, validation 2020–2021, test 2022–2024. The test set thus contains the 2022 inflation/rates shock — a non-COVID stressor distinct from the training window. Anchored walk-forward then expands across the test period. Good?
-
-3. **Supervisor cadence.** Are you meeting your supervisor weekly / fortnightly? I want to slot supervisor checkpoints into the milestones — usually after Phases 2, 5, and 7.
-
-4. **Nystrup implementation route.** Port the reference R implementation to Python, or implement the jump penalty as a regularised EM step on top of `hmmlearn`? The latter is faster but less faithful; the former takes longer but is auditable against the published algorithm. Decide at the start of Phase 4.
-
-Answer those when convenient and we move into Phase 1.
+*(The earlier open questions — time period, test split, and the Nystrup implementation route — were all resolved during the Phase 1–4 build; see the Resolved list above and the 2026-07-19 changelog entry.)*
 
 ---
 
@@ -433,6 +431,17 @@ Following completion of the literature review, the roadmap was updated to absorb
 - §7 — Reading roadmap expanded to include Cont (2001), Hansen-Lunde (2005), Lim-Zohren (2021), Nystrup et al. (2020), Engle-Manganelli (2004), Gneiting-Raftery (2007), Giacomini-White (2006), Kim-Won (2018), and other lit-review citations.
 - §8 — Risk #8 retired (no longer applicable now that RV is intraday); replaced with implementation risk on the Nystrup jump penalty and a data-availability risk on Oxford-Man.
 - §10 — Resolved questions struck through; one new open question on Nystrup implementation route.
+
+**2026-07-19 — Phases 0–4 complete; scope and splits finalised.**
+Roadmap brought into line with the implemented pipeline after the Phase 1–4 build (verified: 126/126 unit tests green; committed prediction parquets reproduce the milestone numbers):
+- **Status header added.** Phases 0–4 are done (milestones `m01`–`m04`); Phase 5 (regime-aware models) is next.
+- **Scope finalised to 2000-01-03 → 2022-02-25.** The Oxford-Man `.SPX` intraday rv5 series ends at the library's 2022-02-25 coverage boundary; the originally-planned 2022–2024 extension (splicing reconstructed intraday RV) was abandoned because no free 2022–2024 intraday source was available. yfinance daily data still spans 2000–2024 for the Yang-Zhang sensitivity and the robustness assets. (Phase 1; §10 Q1.)
+- **Splits finalised** to train ≤ 2015-12-31, validation 2016–2018, test 2019-01-01 → 2022-02-25 (anchored walk-forward, ~monthly refit); the COVID-19 crash is the headline out-of-sample stressor. Supersedes the earlier "train pre-2020 / val 2020–21 / test 2022–24" suggestion. (Phase 1; §10 Q2.)
+- **Nystrup jump penalty implemented** in `src/models/regime/jump.py` (λ tuned by a persistence sweep); the Phase-4 fallback (Risk #8) was not triggered. (§10 Q4.)
+- **Phase-2 return input refined** to open-to-close log returns for the GARCH family, to fair-match the open-to-close Oxford-Man rv5 target (close-to-close embeds the overnight gap, which the ratio-based QLIKE penalises).
+- **Phase-3 architecture-vs-information control added:** an RV-only LSTM matched to HAR-RV's exact inputs runs alongside the full LSTM, so any win over HAR-RV is attributable to the architecture rather than the extra return feature.
+- **Two Phase-1 data bugs fixed** (an Oxford-Man BST date mis-parse that shifted ~59% of rows and produced weekend dates; a `realized_vol.py` syntax error), each with a regression test.
+- **Phase-4 hand-off note corrected:** the persisted causal posterior comes from a single HMM fit on the training window (≤ 2015-12-31) then filtered forward and frozen — *not* refit per walk-forward step — and is consumed leakage-safely via the LSTM's t−1 input window.
 
 ---
 

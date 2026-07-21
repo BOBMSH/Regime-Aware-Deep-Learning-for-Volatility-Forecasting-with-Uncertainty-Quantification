@@ -65,7 +65,7 @@ The regime *map* above uses the **smoothed** posterior P(sₜ | x₁..x_T), the 
 
 ![smoothed vs filtered](../figures/m04/intraday_2019_2022_smoothed_vs_filtered.png)
 
-> **Phase-5 hand-off / Ch3 note.** Chapter 2 §2.5 currently describes passing the *smoothed* state probabilities to the LSTM. Taken literally over the full sample, that would leak the future into an out-of-sample forecast. The leakage-free realisation — and what the persisted `hmm_filt_p*` columns hold — is the **causal filtered** posterior from a train-fit HMM (refit as the walk-forward expands), lagged one day. Recommend reconciling the Chapter 3 wording to 'filtered (causal) state probabilities' accordingly.
+> **Phase-5 hand-off / Ch3 note.** The persisted `hmm_filt_p*` columns hold the **causal filtered** posterior P(sₜ | x₁..xₜ) from a *single* HMM fit on the **training split only** (≤ 2015-12-31; standardisation also fit on train only), then filtered forward over the whole sample. The model is **not** refit as the walk-forward expands — it is frozen at its training-window fit, a deliberately conservative choice that keeps every out-of-sample day leakage-free. Each value is aligned to its own date t (it uses the return of day t but nothing after it) and is **not** pre-lagged; Phase 5 consumes it leakage-safely through the ordinary sliding-window rule, because the LSTM input window ends at t−1, so a forecast for RVₜ only ever sees regime posteriors dated ≤ t−1. Chapter 2 §2.5 already describes the LSTM as conditioned on the *filtered* (causal) state probabilities; Chapter 3 should additionally note that the HMM is frozen at its training-window fit (not refit per fold).
 
 ## Artifacts
 

@@ -515,13 +515,20 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  "smoother's hindsight matters most.\n".format(
                      te=pd.Timestamp(c["train_end"]).date(), d=c["mean_abs_divergence_test"]))
         p.append(f"\n![smoothed vs filtered](../figures/m04/{name}_smoothed_vs_filtered.png)\n")
-        p.append("> **Phase-5 hand-off / Ch3 note.** Chapter 2 §2.5 currently describes passing "
-                 "the *smoothed* state probabilities to the LSTM. Taken literally over the full "
-                 "sample, that would leak the future into an out-of-sample forecast. The "
-                 "leakage-free realisation — and what the persisted `hmm_filt_p*` columns hold — "
-                 "is the **causal filtered** posterior from a train-fit HMM (refit as the "
-                 "walk-forward expands), lagged one day. Recommend reconciling the Chapter 3 "
-                 "wording to 'filtered (causal) state probabilities' accordingly.\n")
+        te_note = pd.Timestamp(c["train_end"]).date()
+        p.append("> **Phase-5 hand-off / Ch3 note.** The persisted `hmm_filt_p*` columns hold the "
+                 "**causal filtered** posterior P(sₜ | x₁..xₜ) from a *single* HMM fit on the "
+                 f"**training split only** (≤ {te_note}; standardisation also fit on train only), "
+                 "then filtered forward over the whole sample. The model is **not** refit as the "
+                 "walk-forward expands — it is frozen at its training-window fit, a deliberately "
+                 "conservative choice that keeps every out-of-sample day leakage-free. Each value "
+                 "is aligned to its own date t (it uses the return of day t but nothing after it) "
+                 "and is **not** pre-lagged; Phase 5 consumes it leakage-safely through the "
+                 "ordinary sliding-window rule, because the LSTM input window ends at t−1, so a "
+                 "forecast for RVₜ only ever sees regime posteriors dated ≤ t−1. Chapter 2 §2.5 "
+                 "already describes the LSTM as conditioned on the *filtered* (causal) state "
+                 "probabilities; Chapter 3 should additionally note that the HMM is frozen at its "
+                 "training-window fit (not refit per fold).\n")
 
     p.append("## Artifacts\n")
     p.append(f"- **Predictions (Phase-5 input):** `results/predictions/m04_regimes_{name}.parquet` — "
