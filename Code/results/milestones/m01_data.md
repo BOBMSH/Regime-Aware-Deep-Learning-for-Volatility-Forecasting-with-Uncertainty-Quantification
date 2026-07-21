@@ -1,13 +1,17 @@
 # M01 — Data pipeline & EDA (Phase 1)
 
-*Stub for the Phase 1 gate. Populate the figures + numbers below by running
-`notebooks/01_data_exploration.ipynb` end-to-end once the data is ingested.*
+*Generated from `notebooks/01_data_exploration.ipynb` on the fixed pipeline; numbers trace
+to `results/tables/m01_rv_summary.csv` and the figures under `results/figures/m01/`. Final
+data scope: 2000-01-03 → 2022-02-25 (see Splits and the scope note below).*
 
 ## Scope
 
 Roadmap Phase 1 (ROADMAP.md §3) — ingest the dissertation's primary realized-volatility
-target (Oxford-Man intraday `rv5` for `.SPX`), the daily OHLC for ^GSPC plus the
-robustness assets AAPL and TSLA, and the VIX, all over 2000-01-01 → 2024-12-31.
+target (Oxford-Man intraday `rv5` for `.SPX`, **2000-01-03 → 2022-02-25**, the library's
+coverage boundary and the final sample end), the daily OHLC for ^GSPC plus the robustness
+assets AAPL and TSLA, and the VIX. The yfinance pulls span 2000–2024 (feeding the
+Yang-Zhang sensitivity estimator and the robustness assets); the intraday RV **target** and
+all headline analysis end at 2022-02-25.
 
 ## Inputs
 
@@ -49,44 +53,39 @@ From `results/tables/m01_rv_summary.csv` (daily-scale realized volatility, ^GSPC
 | Oxford-Man intraday | 0.00845 | 0.00684 | 0.00612 | 0.03314 | 5552 |
 
 The three estimators agree on level to within ~7% on the mean — a reassuring
-first-order sanity check. The intraday series has fewer observations because the
-recoverable snapshot ends 2022-02-25 (see open issue above).
+first-order sanity check. The intraday series has fewer observations because its
+coverage ends 2022-02-25, the Oxford-Man `.SPX` boundary and the final sample end
+(see the scope decision below).
 
-## ⚠ Open issue — Oxford-Man coverage ends 2022-02-25
+## Scope decision (resolved 2026-07-19) — dataset ends 2022-02-25
 
-The only recoverable Oxford-Man Realized Library snapshot (Wayback Machine,
-captured 2022-03-01) covers **`.SPX` from 2000-01-03 to 2022-02-25** — the
-institute closed before any 2022–2024 data was published. The roadmap's headline
-test window is 2022–2024, so the *intraday* RV target cannot cover the full test
-segment. Three options for the supervisor discussion (roadmap risk #9):
-
-1. **Use Yang-Zhang OHLC RV as the test-window target** (available 2000–2024 via
-   yfinance), with Oxford-Man intraday RV as the train/validation target and the
-   in-sample cross-estimator sanity check. Cleanest given the constraint.
-2. **Shift the test window earlier** (e.g. train ≤2017, val 2018–2019, test
-   2020–Feb 2022) so the intraday target covers the whole evaluation period —
-   but this loses the 2022 inflation shock as a test stressor.
-3. **Source a newer realized-variance series** (e.g. a different vendor) for
-   2022 onward — out of scope per roadmap §6 ("no bespoke intraday pipeline").
-
-**Recommended:** option 1 — it preserves the 2022 stressor and is consistent
-with §1.1's framing of Yang-Zhang as the documented fallback target. Decision to
-be confirmed before Phase 2.
+The only recoverable Oxford-Man Realized Library snapshot (Wayback Machine, captured
+2022-03-01) covers **`.SPX` from 2000-01-03 to 2022-02-25**; the institute closed before
+any 2022–2024 data was published. The originally-planned 2022–2024 test extension was
+therefore **abandoned** — no free 2022–2024 intraday RV source was available — and the
+**final scope is 2000–2022** on the canonical intraday target, with the test window ending
+25 Feb 2022 and the COVID-19 crash as the headline out-of-sample stressor. Yang-Zhang OHLC
+RV is retained only as an in-sample **sensitivity** estimator, not as a substitute target:
+its 21-day rolling smoothing pushes the target's lag-1 autocorrelation to ~0.996, which
+trivialises persistence models — see the m02 target-validity diagnostic. This decision
+supersedes the earlier three-option supervisor question and is consistent with
+`configs/data.yaml`, ROADMAP §10, and the Phase 2–5 milestones.
 
 ## Splits
 
-The three-way split is fixed in `configs/data.yaml`:
+The three-way split is fixed in `configs/data.yaml` (final, 2026-07-19):
 
 | Segment | Window | Purpose |
 |---|---|---|
-| Train | 2000-01-03 → 2019-12-31 | Initial training; HMM fits at each walk-forward step |
-| Validation | 2020-01-01 → 2021-12-31 | Hyperparameter selection; spans COVID-19 |
-| Test | 2022-01-01 → 2024-12-31 | Headline OOS; spans 2022 inflation shock |
+| Train | 2000-01-03 → 2015-12-31 | Initial training; HMM fit on this window only, then frozen |
+| Validation | 2016-01-01 → 2018-12-31 | Hyperparameter selection |
+| Test | 2019-01-01 → 2022-02-25 | Headline OOS; the COVID-19 crash is the stressor |
 
-The anchored walk-forward generator (`src.data.splits.walk_forward_folds`) refits
-monthly (21 trading-day cadence) by default; this is the cadence we commit to
-for Phase 2 econometric baselines and may be loosened to weekly for the LSTM
-work in Phase 3.
+The anchored walk-forward generator (`src.data.splits.walk_forward_folds`) refits monthly
+(21 trading-day cadence); this is the cadence used for the Phase 2 econometric baselines and
+the Phase 3–5 deep models (which train once on the pre-test window and predict test folds
+every 21 days). This supersedes the earlier "train ≤2019 / val 2020–21 / test 2022–24"
+draft, which assumed the abandoned 2022–2024 extension.
 
 ## Tests
 
@@ -104,7 +103,7 @@ Both must pass before this milestone is tagged.
   (recovered from the 2022-03-01 Wayback Machine snapshot; see `*.meta.json`).
 - [x] All six figures produced (`results/figures/m01/fig01..fig06`).
 - [x] `results/tables/m01_rv_summary.csv` produced.
-- [x] `pytest -q` passes (41 tests).
+- [x] `pytest -q` passes (Phase-1 RV & split tests; the full suite is now 143/143 green).
 - [x] Narrative below describes the Oxford-Man vs YZ sanity check.
 
 ## Narrative

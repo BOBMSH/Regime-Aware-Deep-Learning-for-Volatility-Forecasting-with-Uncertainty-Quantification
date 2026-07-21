@@ -48,7 +48,7 @@ from src.data.datasets import build_econometric_frame
 from src.data.splits import SplitConfig, walk_forward_folds
 from src.evaluation.metrics import qlike
 from src.evaluation.rolling import ACTUAL_COL, evaluate_predictions, run_walk_forward
-from src.experiments.run_lstm import diebold_mariano  # reuse the indicative DM readout
+from src.evaluation.significance import diebold_mariano, model_confidence_set
 from src.models.deep import LSTMForecaster, RegimeExpertForecaster
 from src.utils.config import load_config, repo_path, snapshot_config
 from src.utils.io import ensure_dir, from_parquet, to_parquet
@@ -145,8 +145,9 @@ def per_regime_qlike(preds: pd.DataFrame, reg_state: pd.Series, labels, model_co
 
 
 def dm_table(preds: pd.DataFrame, pairs) -> pd.DataFrame:
-    """Indicative DM (QLIKE differential) for the RQ2 head-to-head pairs.
+    """Formal Diebold–Mariano (QLIKE differential) for the RQ2 head-to-head pairs.
 
+    Uses the HLN-corrected, Student-t DM from :mod:`src.evaluation.significance`.
     Each pair (a, b): a negative statistic means model *a* has the lower loss.
     """
     y = preds[ACTUAL_COL]
@@ -297,13 +298,32 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append(_fmt_per_regime(per, ctx["per_regime_models"]) + "\n")
     p.append(f"\n![per-regime QLIKE](../figures/m05/{name}_per_regime_qlike.png)\n")
 
-    p.append("## Significance (indicative DM on QLIKE; formal DM+MCS in Phase 7)\n")
+    mcs = ctx.get("mcs")
+    p.append("## Significance — formal DM + Model Confidence Set\n")
+    p.append("Pairwise **Diebold–Mariano** (1995) on the QLIKE differential, with the "
+             "Harvey–Leybourne–Newbold (1997) small-sample correction and a Student-t "
+             "reference (a negative statistic means the first model has the lower loss). "
+             "The **Model Confidence Set** (Hansen, Lunde & Nason 2011) then controls for "
+             "multiple comparison across *all* models jointly (Ch2 §2.7).\n")
     p.append("| comparison (a vs b) | DM stat | p | better | n |")
     p.append("|---|---|---|---|---|")
     for _, r in dm.iterrows():
         p.append(f"| {r['model_a']} vs {r['model_b']} | {r['dm_stat']:.2f} | "
                  f"{r['p_value']:.3f} | {r['better']} | {int(r['n'])} |")
     p.append("")
+    if mcs is not None:
+        conf = int(round((1 - mcs.attrs["alpha"]) * 100))
+        p.append(f"**Model Confidence Set — {conf}% confidence.** QLIKE loss; stationary "
+                 f"bootstrap ({mcs.attrs['reps']} reps, block {mcs.attrs['block_size']}, "
+                 f"'{mcs.attrs['method']}' statistic, seed {mcs.attrs['seed']}). Surviving set "
+                 f"= {{{', '.join(mcs.attrs['included'])}}}; eliminated "
+                 f"= {{{', '.join(mcs.attrs['excluded'])}}}.\n")
+        p.append("| model | avg QLIKE | MCS p-value | in MCS |")
+        p.append("|---|---|---|---|")
+        for mname, rr in mcs.iterrows():
+            p.append(f"| {mname} | {rr['avg_loss']:.4f} | {rr['mcs_pvalue']:.3f} | "
+                     f"{'✓' if rr['in_mcs'] else '—'} |")
+        p.append("")
 
     # ---- findings (data-driven: significance- and regime-aware) ----
     reg_helps = q(best_reg) < q("LSTM")
@@ -332,7 +352,13 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
         line += (f"Against the tougher, lower-parameter HAR-RV benchmark the gap is not significant "
                  f"(DM {bh['dm_stat']:.2f}, p={bh['p_value']:.3f}) — consistent with the Phase-3 "
                  "result and the literature that HAR-RV is hard to beat on its native target. ")
-    line += "The formal DM + Model Confidence Set arrive in Phase 7."
+    if mcs is not None:
+        conf = int(round((1 - mcs.attrs["alpha"]) * 100))
+        line += (f"The {conf}% **Model Confidence Set** retains "
+                 f"{{{', '.join(mcs.attrs['included'])}}} and rejects "
+                 f"{{{', '.join(mcs.attrs['excluded'])}}}: the deep-learning/HAR cluster is "
+                 "statistically inseparable on 784 days, while the GARCH family and the "
+                 "random-walk floor are excluded outright.")
     p.append(line + "\n")
 
     crow = per[per["regime"] == labels[-1]]
@@ -365,7 +391,9 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append("- [x] Four-way+ comparison vs GARCH/EGARCH/HAR-RV/RW-RV/LSTM/LSTM-RVonly on "
              "identical splits; predictions persisted.\n")
     p.append("- [x] Per-regime (calm/transitional/crisis) error breakdown — core for RQ2.\n")
-    p.append("- [x] Indicative Diebold–Mariano on the head-to-head pairs (formal DM+MCS = Phase 7).\n")
+    p.append("- [x] Formal Diebold–Mariano (HLN-corrected, Student-t) on the head-to-head pairs, "
+             "plus a Model Confidence Set (Hansen–Lunde–Nason 2011) over all models for "
+             "multiple-comparison control (Ch2 §2.7).\n")
     p.append("- [x] Milestone + figures + reproducible config snapshot.\n")
 
     p.append("## Reproduce\n")
@@ -421,7 +449,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     per = per_regime_qlike(combined, reg_state, labels, per_regime_models)
     log.info("PROFILE %s per-regime QLIKE:\n%s", name, per.round(4).to_string(index=False))
 
-    # --- indicative DM on the RQ2 pairs ---
+    # --- formal DM (HLN-corrected, Student-t) on the RQ2 pairs ---
     pairs = [("Regime-LSTM-A", "LSTM"), ("Regime-LSTM-A", "HAR-RV"),
              ("Regime-LSTM-B", "LSTM"), ("Regime-LSTM-B", "HAR-RV"),
              ("Regime-LSTM-A-RVonly", "LSTM-RVonly"),
@@ -433,6 +461,15 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
             seen.add((a, b)); uniq.append((a, b))
     dm = dm_table(combined, uniq)
 
+    # --- Model Confidence Set over ALL models (multiple-comparison control) ---
+    mcs = model_confidence_set(
+        combined[ACTUAL_COL], {c: combined[c] for c in model_cols},
+        alpha=0.10, method="R", reps=2000, block_size=10, seed=int(cfg.seed),
+    )
+    log.info("PROFILE %s MCS (%d%% confidence): included=%s excluded=%s",
+             name, int(round((1 - mcs.attrs["alpha"]) * 100)),
+             mcs.attrs["included"], mcs.attrs["excluded"])
+
     # --- persist predictions (+ regime label) + tables ---
     out_pred = combined.copy()
     out_pred[REGIME_STATE_COL] = reg_state.reindex(out_pred.index).astype("Int64")
@@ -442,6 +479,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     metrics.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_metrics.csv"))
     per.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_per_regime.csv"), index=False)
     dm.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_dm.csv"), index=False)
+    mcs.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_mcs.csv"))
 
     # --- figures ---
     figdir = repo_path(cfg.paths.figures, "m05"); ensure_dir(figdir)
@@ -454,7 +492,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                     f"Per-regime QLIKE ({name})", figdir / f"{name}_per_regime_qlike.png")
 
     return {"name": name, "metrics": metrics, "per_regime": per,
-            "per_regime_models": per_regime_models, "dm": dm, "labels": labels,
+            "per_regime_models": per_regime_models, "dm": dm, "mcs": mcs, "labels": labels,
             "n_oos": int(len(combined)), "fast": bool(args.fast), "pred_path": pred_path,
             "models": [mm.name for mm in models]}
 

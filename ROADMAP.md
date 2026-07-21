@@ -2,11 +2,11 @@
 ## Regime-Aware Deep Learning for Financial Volatility Forecasting with Uncertainty Quantification
 
 **Author:** Bob (University of Warwick, MSc Applied AI)
-**Last updated:** 2026-07-19
+**Last updated:** 2026-07-21
 **Target submission window:** ~12 weeks (≈ early August 2026)
 **Compute:** Local machine with GPU
 **Stack:** Python, PyTorch, pandas, numpy, scikit-learn, statsmodels, `arch`, `hmmlearn`
-**Status:** Phases 0–4 complete — milestones `m01`–`m04` on disk, 126/126 unit tests green, and the committed prediction parquets reproduce the milestone numbers. **Phase 5 (regime-aware models) is next.** Final data scope is **2000-01-03 → 2022-02-25** (the Oxford-Man `.SPX` coverage boundary); the originally-planned 2022–2024 intraday extension was abandoned (no free intraday source). See the 2026-07-19 changelog entry at the foot of this file.
+**Status:** Phases 0–5 complete — milestones `m01`–`m05` on disk, 143/143 unit tests green, and the committed prediction parquets reproduce the milestone numbers. **Phase 6 (uncertainty quantification) is next.** The formal Diebold–Mariano test (HLN-corrected, Student-t) and the Model Confidence Set (Hansen–Lunde–Nason 2011) — originally slated for Phase 7 — are now implemented in `src/evaluation/significance.py` and reported in the Phase-5 comparison (`m05`): the 90% MCS keeps the six deep-learning/HAR models and excludes the GARCH family and the random-walk floor. Final data scope is **2000-01-03 → 2022-02-25** (the Oxford-Man `.SPX` coverage boundary); the originally-planned 2022–2024 intraday extension was abandoned (no free intraday source). See the 2026-07-21 changelog entry at the foot of this file.
 
 ---
 
@@ -120,15 +120,16 @@ Each phase ends with a **milestone artifact**: a markdown note in `results/`, a 
 - **Critical:** all HMM fits must be on the training window only at each walk-forward step; the regularisation parameter is also CV-selected on training-only data
 - **Gate:** `results/m04_regimes.md` with regime maps, BIC sensitivity table for K∈{2,3,4}, state-persistence statistics, and a confusion table vs VIX-quantile labels
 
-### Phase 5 — Regime-aware models (Weeks 6–7)  ·  ⏭️ **NEXT**
+### Phase 5 — Regime-aware models (Weeks 6–7)  ·  ✅ **DONE** — Regime-LSTM-B (MoE) best QLIKE 0.2583 < LSTM 0.2650 (formal DM p=0.034); regime value concentrated in the COVID crisis (Regime-LSTM-A 0.2976, ~7% < best baseline); 90% Model Confidence Set = {HAR-RV, LSTM, LSTM-RVonly, Regime-LSTM-A, Regime-LSTM-A-RVonly, Regime-LSTM-B}, GARCH-family + RW excluded (`m05_regime_dl.md`)
 Two architectures, run head-to-head:
 - **Approach A — Regime as feature:** append one-hot regime (or posterior probabilities) to LSTM input vector
 - **Approach B — Regime-specific experts:** train one LSTM per regime, route via current regime posterior at inference (mixture-of-experts gating)
 - Compare both vs Phase 3 LSTM and vs Phase 2 econometric baselines
 - **Calm vs crisis subsetting:** segment the test set by regime label and report per-regime errors — this is core for RQ2
-- **Gate:** `results/m05_regime_dl.md` with the four-way comparison table (GARCH | HAR | LSTM | Regime-LSTM-A | Regime-LSTM-B), per-regime breakdown, and a discussion paragraph
+- **Gate:** `results/m05_regime_dl.md` with the comparison table (GARCH | EGARCH | HAR | RW | LSTM | LSTM-RVonly | Regime-LSTM-A | Regime-LSTM-A-RVonly | Regime-LSTM-B), per-regime breakdown, formal Diebold–Mariano + Model Confidence Set, and a discussion paragraph
 
-### Phase 6 — Uncertainty quantification (Weeks 8–9)
+### Phase 6 — Uncertainty quantification (Weeks 8–9)  ·  ⏭️ **NEXT**
+- *Infrastructure ready:* the calibration metrics PICP / MPIW / Winkler score are already implemented and unit-tested in `src/evaluation/metrics.py`; the MC-Dropout variant reuses the existing LSTM head dropout (kept active at inference).
 - **MC Dropout LSTM:** keep dropout active at inference; T=100 stochastic forward passes; report mean and predictive std → 95% intervals
 - **Quantile Regression LSTM:** three output heads (q=0.05, 0.5, 0.95) trained with pinball loss
 - Calibration metrics: PICP (prediction interval coverage probability), MPIW (mean prediction interval width), Winkler score
@@ -137,7 +138,7 @@ Two architectures, run head-to-head:
 
 ### Phase 7 — Combined model + significance + writeup start (Week 10)
 - Combined Regime + MC Dropout model (best of phase 5 architecture × MC Dropout)
-- Diebold-Mariano test on headline pairs: best DL vs HAR; regime-aware vs regime-agnostic; UQ-LSTM mean vs LSTM
+- Diebold-Mariano test on headline pairs: best DL vs HAR; regime-aware vs regime-agnostic; UQ-LSTM mean vs LSTM. *(The formal DM + Model Confidence Set apparatus was implemented early, in Phase 5 — `src/evaluation/significance.py` — so Phase 7 extends it to the UQ pairs rather than building it from scratch.)*
 - Begin Methods and Experiments chapters of dissertation
 - **Gate:** `results/m07_combined.md` with the master results table that will appear in the dissertation
 
@@ -442,6 +443,13 @@ Roadmap brought into line with the implemented pipeline after the Phase 1–4 bu
 - **Phase-3 architecture-vs-information control added:** an RV-only LSTM matched to HAR-RV's exact inputs runs alongside the full LSTM, so any win over HAR-RV is attributable to the architecture rather than the extra return feature.
 - **Two Phase-1 data bugs fixed** (an Oxford-Man BST date mis-parse that shifted ~59% of rows and produced weekend dates; a `realized_vol.py` syntax error), each with a regression test.
 - **Phase-4 hand-off note corrected:** the persisted causal posterior comes from a single HMM fit on the training window (≤ 2015-12-31) then filtered forward and frozen — *not* refit per walk-forward step — and is consumed leakage-safely via the LSTM's t−1 input window.
+
+**2026-07-21 — Phase 5 complete; formal DM + Model Confidence Set implemented (pulled forward from Phase 7).**
+Roadmap brought into line with the implemented pipeline after the Phase 5 build and a full pre-Phase-6 audit (verified: 143/143 unit tests green; the committed `m05` prediction parquet reproduces every QLIKE, per-regime and significance number):
+- **Status header updated.** Phases 0–5 are done (milestones `m01`–`m05`); Phase 6 (uncertainty quantification) is next.
+- **Phase 5 delivered.** Regime-aware LSTMs built two ways — regime-as-feature (Regime-LSTM-A, plus an RV-only variant) and a mixture-of-experts (Regime-LSTM-B) — on the Phase-4 causal filtered HMM posteriors (leakage-safe: window ends t−1, MoE gate lagged to t−1). Headline: Regime-LSTM-B QLIKE 0.2583 < LSTM 0.2650 (formal DM p=0.034); the regime signal's value concentrates in the COVID crisis state (Regime-LSTM-A 0.2976, ≈7% below the best baseline), while the calm-dominated pooled mean understates it — the RQ2 hypothesis.
+- **Formal significance apparatus implemented early.** `src/evaluation/significance.py` now provides the formal Diebold–Mariano test (Newey–West HAC + Harvey–Leybourne–Newbold small-sample correction + Student-t) and the Model Confidence Set (Hansen–Lunde–Nason 2011, via the `arch` stationary-bootstrap implementation), both on the QLIKE loss. These were originally scheduled for Phase 7; they are pulled forward so the Phase-5 model comparison reports a multiple-comparison-controlled verdict, matching the Chapter 2 §2.7 commitment. The 90% MCS retains the six deep-learning/HAR models and excludes GARCH, EGARCH and the random-walk floor (`m05_regime_dl.md`; `results/tables/m05_regime_dl_intraday_2019_2022_mcs.csv`). Unit-tested in `tests/test_significance.py`.
+- **The earlier indicative DM readout in `run_lstm.py` was replaced** by an import of the formal test; at n=784, h=1 the corrected statistics are numerically unchanged (Regime-LSTM-B vs LSTM stays −2.13, p=0.034).
 
 ---
 

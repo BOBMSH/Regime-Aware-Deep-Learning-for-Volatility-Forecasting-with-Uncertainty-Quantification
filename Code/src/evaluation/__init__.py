@@ -19,6 +19,12 @@ from src.evaluation.metrics import (
     rmse,
     winkler_score,
 )
+from src.evaluation.significance import (
+    diebold_mariano,
+    dm_pairs_table,
+    model_confidence_set,
+    qlike_loss,
+)
 
 __all__ = [
     "mse",
@@ -29,4 +35,8 @@ __all__ = [
     "picp",
     "mpiw",
     "winkler_score",
+    "diebold_mariano",
+    "dm_pairs_table",
+    "model_confidence_set",
+    "qlike_loss",
 ]

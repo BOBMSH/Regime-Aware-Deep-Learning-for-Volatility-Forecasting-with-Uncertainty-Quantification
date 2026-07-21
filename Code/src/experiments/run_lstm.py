@@ -39,6 +39,7 @@ from src.data.datasets import build_econometric_frame
 from src.data.splits import Fold, SplitConfig
 from src.evaluation.metrics import mae, mse, qlike
 from src.evaluation.rolling import ACTUAL_COL, evaluate_predictions, run_walk_forward
+from src.evaluation.significance import diebold_mariano
 from src.models.deep import LSTMForecaster
 from src.utils.config import load_config, repo_path, snapshot_config
 from src.utils.io import ensure_dir, from_parquet, to_parquet
@@ -128,40 +129,14 @@ def sweep_validation(frame, split, mcfg, hcfg, scfg, *, seed, max_epochs) -> tup
 
 
 # --------------------------------------------------------------------------- #
-# Significance (indicative; full DM/MCS is Phase 7)                           #
+# Significance                                                                 #
 # --------------------------------------------------------------------------- #
-
-def _qlike_obs(y, h, eps=1e-16):
-    y = np.clip(np.asarray(y, float), eps, None)
-    h = np.clip(np.asarray(h, float), eps, None)
-    r = y / h
-    return r - np.log(r) - 1.0
-
-
-def diebold_mariano(y, h_a, h_b) -> dict:
-    """Indicative one-sided DM test on the QLIKE loss differential (a - b).
-
-    Negative statistic => model *a* has the lower loss. HAC (Newey-West) long-run
-    variance with a small automatic lag. This is a convenience readout for RQ1;
-    the dissertation's formal DM + Model Confidence Set arrive in Phase 7.
-    """
-    d = _qlike_obs(y, h_a) - _qlike_obs(y, h_b)
-    d = d[np.isfinite(d)]
-    n = len(d)
-    dbar = float(d.mean())
-    lag = max(1, int(np.floor(n ** (1 / 3))))
-    gamma0 = float(np.mean((d - dbar) ** 2))
-    lrv = gamma0
-    for k in range(1, lag + 1):
-        w = 1.0 - k / (lag + 1)
-        cov = float(np.mean((d[k:] - dbar) * (d[:-k] - dbar)))
-        lrv += 2.0 * w * cov
-    se = float(np.sqrt(max(lrv, 1e-24) / n))
-    stat = dbar / se
-    # two-sided p-value via normal approximation
-    from math import erf, sqrt
-    p = 2.0 * (1.0 - 0.5 * (1.0 + erf(abs(stat) / sqrt(2.0))))
-    return {"dm_stat": stat, "p_value": p, "mean_loss_diff": dbar, "n": n, "lag": lag}
+# The Diebold–Mariano test now lives in src.evaluation.significance in its formal
+# form (Newey–West HAC + Harvey–Leybourne–Newbold small-sample correction +
+# Student-t), alongside the Model Confidence Set. It is imported above and
+# re-exported here so existing callers (``from src.experiments.run_lstm import
+# diebold_mariano``) keep working unchanged.
+__all__ = ["diebold_mariano"]
 
 
 # --------------------------------------------------------------------------- #
