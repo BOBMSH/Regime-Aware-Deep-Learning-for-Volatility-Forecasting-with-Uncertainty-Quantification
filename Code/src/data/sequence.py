@@ -51,6 +51,14 @@ FEATURE_BUILDERS: dict[str, callable] = {
     "log_rv_w": lambda f: np.log(f["rv_w"].astype(float).clip(lower=_EPS)),
     "log_rv_m": lambda f: np.log(f["rv_m"].astype(float).clip(lower=_EPS)),
     "vix_close": lambda f: f["vix_close"].astype(float),
+    # Phase 5 (regime-aware): the Phase-4 causal *filtered* HMM state posteriors,
+    # P(s_t | x_1..x_t), joined onto the modelling frame as columns reg_p0..reg_p2
+    # (calm / transitional / crisis). Used raw (probabilities in [0,1]); the
+    # sliding window (ending at t-1) makes their use as a forecast feature causal
+    # by construction, so no manual lag is needed here (roadmap Phase 5; Ch2 §2.5).
+    "reg_p0": lambda f: f["reg_p0"].astype(float),
+    "reg_p1": lambda f: f["reg_p1"].astype(float),
+    "reg_p2": lambda f: f["reg_p2"].astype(float),
 }
 
 # Internal modelling target: log realized *variance* of day t.

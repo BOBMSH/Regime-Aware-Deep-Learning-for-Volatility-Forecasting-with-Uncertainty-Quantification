@@ -17,5 +17,6 @@ Phase 3 baseline.
 from __future__ import annotations
 
 from src.models.deep.lstm import LSTMForecaster, LSTMRegressor
+from src.models.deep.regime_lstm import RegimeExpertForecaster
 
-__all__ = ["LSTMForecaster", "LSTMRegressor"]
+__all__ = ["LSTMForecaster", "LSTMRegressor", "RegimeExpertForecaster"]

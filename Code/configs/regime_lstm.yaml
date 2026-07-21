@@ -1,0 +1,79 @@
+# Phase 5 -- regime-aware LSTM configuration (ROADMAP.md Phase 5; Ch2 sec2.5; RQ2).
+# Run with:  python -m src.experiments.run_regime_lstm
+#
+# Conditions the Phase-3 LSTM on the Phase-4 HMM regime signal, two ways, and
+# scores both on the SAME anchored walk-forward as the Phase-2/3 baselines:
+#   * Approach A -- regime as an extra INPUT FEATURE (the causal filtered
+#     posteriors reg_p0..reg_p2 appended to the LSTM inputs; Ch2 sec2.5).
+#   * Approach B -- one LSTM EXPERT per regime, soft-gated by the posterior at t-1
+#     (mixture-of-experts).
+#
+# Hyperparameters are FIXED at the Phase-3 validation selection (hidden 128,
+# lookback 10, lr 1e-3) and deliberately NOT re-swept, so the contrast
+# "LSTM -> Regime-LSTM" isolates the effect of regime-conditioning rather than
+# confounding it with a fresh hyperparameter search.
+
+seed: 17
+
+# --- Regime signal (Phase-4 output consumed as the conditioning input) --------
+regime:
+  # Phase-4 predictions parquet holding the causal filtered posteriors.
+  source: "results/predictions/m04_regimes_intraday_2019_2022.parquet"
+  # Use the CAUSAL FILTERED posteriors (leakage-free) -- NOT the smoothed ones.
+  # Renamed to reg_p0..reg_p2 on the modelling frame.
+  posterior_cols: [hmm_filt_p0, hmm_filt_p1, hmm_filt_p2]
+  state_col: hmm_filt_state          # causal hard state, for the per-regime breakdown
+  labels: [calm, transitional, crisis]
+
+# --- Network + optimisation (fixed at the Phase-3 selection) -------------------
+model:
+  base_features: [log_rv, oc_log_return]   # the Phase-3 "LSTM" feature set
+  regime_features: [reg_p0, reg_p1, reg_p2]
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 90                     # matches the Phase-3 CPU run; early stopping cuts it short
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+
+# --- Which architectures to run ----------------------------------------------
+approaches:
+  feature_full: true      # Regime-LSTM-A       : base (log_rv, oc_ret) + regime posteriors
+  feature_rvonly: true    # Regime-LSTM-A-RVonly: (log_rv) + regime  -- matches the Phase-3 winner
+  experts: true           # Regime-LSTM-B       : one expert LSTM per regime (MoE)
+
+# --- Walk-forward harness (identical to Phase 3) -----------------------------
+harness:
+  refit_every_folds: 0               # train once on all pre-test data, reuse across OOS
+  refit_frequency_days: 21           # test-fold cadence (matches Phase 2/3)
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profile ------------------------------------------------------
+profiles:
+  - name: intraday_2019_2022
+    headline: true
+    target: oxfordman_rv5
+    description: "Regime-aware LSTM (feature + expert) vs the Phase-2/3 baselines on the canonical Oxford-Man rv5 target; test 2019-01 -> 2022-02-25, COVID-19 out-of-sample. Regime signal = Phase-4 causal filtered HMM posteriors."
+    # Phase-3 predictions (GARCH/EGARCH/HAR-RV/RW-RV/LSTM/LSTM-RVonly + y_true).
+    baseline_predictions: "results/predictions/m03_lstm_intraday_2019_2022.parquet"
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+# --- Output paths ------------------------------------------------------------
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  experiments: "experiments"
