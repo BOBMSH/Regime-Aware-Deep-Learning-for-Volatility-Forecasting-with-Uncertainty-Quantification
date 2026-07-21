@@ -35,14 +35,14 @@ Roadmap Phase 3: a vanilla **LSTM** (Hochreiter & Schmidhuber 1997; Ch2 §2.5) f
 
 ## Findings (RQ1)
 
-Both LSTM variants beat HAR-RV on QLIKE; the best model overall is **LSTM-RVonly** (QLIKE **0.2596** vs HAR-RV **0.2745**). An *indicative* Diebold–Mariano test on that pair gives stat **-1.75**, p≈**0.081** — the gap is **not statistically significant** (the formal DM + Model Confidence Set arrive in Phase 7). The ranking is loss-function-dependent: the best LSTM leads HAR-RV on both QLIKE and MSE (LSTM-RVonly MSE 4.02e-08 vs 4.18e-08), with MAE near-identical across the top models — a Patton-2011 reminder that the chosen metric can move the ranking.
+Both LSTM variants beat HAR-RV on QLIKE; the best model overall is **LSTM-RVonly** (QLIKE **0.2596** vs HAR-RV **0.2745**). A formal Diebold–Mariano test (HLN-corrected, Student-t) on that pair gives stat **-1.75**, p≈**0.081** — the gap is **not statistically significant** (the Model Confidence Set over the full model board, controlling for multiple comparison, is reported in Phase 5, `m05`). The ranking is loss-function-dependent: the best LSTM leads HAR-RV on both QLIKE and MSE (LSTM-RVonly MSE 4.02e-08 vs 4.18e-08), with MAE near-identical across the top models — a Patton-2011 reminder that the chosen metric can move the ranking.
 
 
 This is the expected shape for daily equity RV: HAR-RV is a demanding benchmark on its native target (Corsi 2009; Bucci 2020; Kılıç 2025), so the value of the deep model is not assumed — it is tested. The regime-aware (Phase 5) and uncertainty-aware (Phase 6) variants build on this exact LSTM.
 
 ## Robustness — architecture vs. information (RQ1, Ch1 §1.5-ii)
 
-The full LSTM uses RV history **and** the day's return — a superset of any single baseline's inputs. To separate the contribution of the *architecture* from that of the *inputs*, an identical-hyperparameter LSTM restricted to `['log_rv']` (HAR-RV's information set exactly) is benchmarked alongside it. RV-only LSTM QLIKE **0.2596** vs full LSTM 0.2650 and HAR-RV 0.2745. Even with its inputs restricted to RV history — HAR-RV's exact information set — the LSTM architecture alone attains lower QLIKE than HAR-RV (0.2596 vs 0.2745), so the deep model's edge is not merely the extra return feature. Indicative DM (RV-only − HAR-RV): stat -1.75, p≈0.081.
+The full LSTM uses RV history **and** the day's return — a superset of any single baseline's inputs. To separate the contribution of the *architecture* from that of the *inputs*, an identical-hyperparameter LSTM restricted to `['log_rv']` (HAR-RV's information set exactly) is benchmarked alongside it. RV-only LSTM QLIKE **0.2596** vs full LSTM 0.2650 and HAR-RV 0.2745. Even with its inputs restricted to RV history — HAR-RV's exact information set — the LSTM architecture alone attains lower QLIKE than HAR-RV (0.2596 vs 0.2745), so the deep model's edge is not merely the extra return feature. Formal DM (RV-only − HAR-RV): stat -1.75, p≈0.081.
 
 ## Gate criteria
 

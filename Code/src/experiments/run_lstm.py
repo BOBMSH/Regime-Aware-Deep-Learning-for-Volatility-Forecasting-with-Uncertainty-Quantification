@@ -294,9 +294,10 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                       f"marginally ahead on MSE ({m.loc['HAR-RV', 'mse']:.2e} vs "
                       f"{m.loc[best_lstm, 'mse']:.2e}), with MAE near-identical across the top models")
     p.append(f"{lead}; the best model overall is **{best_lstm}** (QLIKE **{best_lstm_q:.4f}** vs "
-             f"HAR-RV **{har_q:.4f}**). An *indicative* Diebold–Mariano test on that pair gives stat "
-             f"**{best_dm['dm_stat']:.2f}**, p≈**{best_dm['p_value']:.3f}** — the gap is **{sig}** "
-             f"(the formal DM + Model Confidence Set arrive in Phase 7). The ranking is "
+             f"HAR-RV **{har_q:.4f}**). A formal Diebold–Mariano test (HLN-corrected, Student-t) on that "
+             f"pair gives stat **{best_dm['dm_stat']:.2f}**, p≈**{best_dm['p_value']:.3f}** — the gap is "
+             f"**{sig}** (the Model Confidence Set over the full model board, controlling for multiple "
+             f"comparison, is reported in Phase 5, `m05`). The ranking is "
              f"loss-function-dependent: {metric_txt} — a Patton-2011 reminder that the chosen metric "
              f"can move the ranking.\n")
     p.append("\nThis is the expected shape for daily equity RV: HAR-RV is a demanding "
@@ -323,7 +324,7 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  f"baseline's inputs. To separate the contribution of the *architecture* from that of "
                  f"the *inputs*, an identical-hyperparameter LSTM restricted to `{ctx['rv_only_feats']}` "
                  f"(HAR-RV's information set exactly) is benchmarked alongside it. RV-only LSTM QLIKE "
-                 f"**{ro_q:.4f}** vs full LSTM {lstm_q:.4f} and HAR-RV {har2:.4f}. {interp} Indicative "
+                 f"**{ro_q:.4f}** vs full LSTM {lstm_q:.4f} and HAR-RV {har2:.4f}. {interp} Formal "
                  f"DM (RV-only − HAR-RV): stat {rdm['dm_stat']:.2f}, p≈{rdm['p_value']:.3f}.\n")
 
     p.append("## Gate criteria\n")

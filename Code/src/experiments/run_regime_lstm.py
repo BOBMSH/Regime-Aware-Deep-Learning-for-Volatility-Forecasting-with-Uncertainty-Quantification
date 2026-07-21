@@ -346,7 +346,7 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
             for _, r in sig.iterrows())
         line = f"This is statistically supported where it matters most: {sig_txt}. "
     else:
-        line = "No pooled pairwise gap reaches significance on 784 days. "
+        line = f"No pooled pairwise gap reaches significance on {ctx['n_oos']} days. "
     bh = dm_row(best_reg, "HAR-RV")
     if bh is not None and bh["p_value"] >= 0.05:
         line += (f"Against the tougher, lower-parameter HAR-RV benchmark the gap is not significant "
@@ -357,7 +357,7 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
         line += (f"The {conf}% **Model Confidence Set** retains "
                  f"{{{', '.join(mcs.attrs['included'])}}} and rejects "
                  f"{{{', '.join(mcs.attrs['excluded'])}}}: the deep-learning/HAR cluster is "
-                 "statistically inseparable on 784 days, while the GARCH family and the "
+                 f"statistically inseparable on {ctx['n_oos']} days, while the GARCH family and the "
                  "random-walk floor are excluded outright.")
     p.append(line + "\n")
 
