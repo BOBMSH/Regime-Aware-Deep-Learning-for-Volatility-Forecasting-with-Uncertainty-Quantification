@@ -167,3 +167,49 @@ def winkler_score(
     penalty[below] = (2.0 / alpha) * (lo[below] - yt[below])
     penalty[above] = (2.0 / alpha) * (yt[above] - hi[above])
     return float(np.mean(width + penalty))
+
+
+def coverage_error(y_true: ArrayLike, lower: ArrayLike, upper: ArrayLike, *, level: float) -> float:
+    """Signed calibration gap for a central ``level`` interval: ``PICP - level``.
+
+    Positive → the interval over-covers (too wide / conservative); negative →
+    it under-covers (too narrow / over-confident). ``level`` is the *nominal*
+    coverage (e.g. ``0.90`` for a 90% interval); the well-calibrated target is 0.
+    Used from Phase 6 (RQ3) to read miscalibration directionally, per regime.
+    """
+    return float(picp(y_true, lower, upper) - float(level))
+
+
+def pinball_loss(y_true: ArrayLike, y_pred: ArrayLike, *, tau: float) -> float:
+    """Mean pinball (quantile / check) loss at quantile level ``tau`` ∈ (0, 1).
+
+        L_tau(y, q) = mean( max( tau (y - q), (tau - 1)(y - q) ) )
+
+    The loss whose minimiser is the conditional ``tau``-quantile (Koenker &
+    Bassett 1978); the objective the Phase-6 quantile-regression LSTM is trained
+    on and the proper score its quantile forecasts are evaluated with. At
+    ``tau = 0.5`` it equals ``0.5 * MAE``. Lower is better.
+
+    ``y_true``/``y_pred`` are aligned on their index when both are Series (NaNs
+    dropped), matching the point-loss convention above.
+    """
+    if not 0.0 < tau < 1.0:
+        raise ValueError(f"tau must be in (0, 1), got {tau}")
+    yt, yp = _align(y_true, y_pred)
+    e = yt - yp
+    return float(np.mean(np.maximum(tau * e, (tau - 1.0) * e)))
+
+
+def mean_pinball_loss(
+    y_true: ArrayLike, quantile_preds: dict[float, ArrayLike]
+) -> float:
+    """Average pinball loss over a set of ``{tau: forecast}`` quantiles.
+
+    A discrete approximation to the CRPS (Gneiting & Raftery 2007) when the
+    ``tau`` grid is dense; with the Phase-6 grid ``{0.05, 0.5, 0.95}`` it is a
+    compact three-point summary of quantile-forecast quality that rewards both
+    calibration and sharpness across the interval, not just at its centre.
+    """
+    if not quantile_preds:
+        raise ValueError("quantile_preds is empty")
+    return float(np.mean([pinball_loss(y_true, q, tau=t) for t, q in quantile_preds.items()]))

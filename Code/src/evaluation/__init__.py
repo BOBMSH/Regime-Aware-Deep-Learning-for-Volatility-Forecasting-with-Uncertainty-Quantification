@@ -9,11 +9,22 @@ later phases) the regime and calibration breakdowns.
 
 from __future__ import annotations
 
+from src.evaluation.calibration import (
+    interval_metrics,
+    lognormal_interval,
+    lognormal_mean,
+    lognormal_quantile,
+    per_regime_interval_metrics,
+    reliability_curve,
+)
 from src.evaluation.metrics import (
+    coverage_error,
     mae,
+    mean_pinball_loss,
     mpiw,
     mse,
     picp,
+    pinball_loss,
     point_metrics,
     qlike,
     rmse,
@@ -35,8 +46,17 @@ __all__ = [
     "picp",
     "mpiw",
     "winkler_score",
+    "coverage_error",
+    "pinball_loss",
+    "mean_pinball_loss",
     "diebold_mariano",
     "dm_pairs_table",
     "model_confidence_set",
     "qlike_loss",
+    "interval_metrics",
+    "lognormal_interval",
+    "lognormal_quantile",
+    "lognormal_mean",
+    "reliability_curve",
+    "per_regime_interval_metrics",
 ]

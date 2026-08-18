@@ -7,10 +7,13 @@ import pandas as pd
 import pytest
 
 from src.evaluation.metrics import (
+    coverage_error,
     mae,
+    mean_pinball_loss,
     mpiw,
     mse,
     picp,
+    pinball_loss,
     point_metrics,
     qlike,
     rmse,
@@ -115,6 +118,53 @@ class TestIntervalLosses:
         hi = np.array([2.0])  # miss above by 3 -> width 2 + (2/alpha)*3
         expected = 2.0 + (2.0 / 0.05) * 3.0
         assert winkler_score(y, lo, hi, alpha=0.05) == pytest.approx(expected)
+
+
+class TestPinballLoss:
+    def test_median_equals_half_mae(self):
+        # pinball at tau=0.5 is exactly 0.5 * MAE.
+        rng = np.random.default_rng(0)
+        y = rng.normal(size=200)
+        f = rng.normal(size=200)
+        assert pinball_loss(y, f, tau=0.5) == pytest.approx(0.5 * mae(y, f))
+
+    def test_asymmetry_matches_tau(self):
+        # under-prediction (y > q) is weighted tau; over-prediction weighted (1-tau).
+        y = np.zeros(1)
+        assert pinball_loss(y, np.array([-1.0]), tau=0.9) == pytest.approx(0.9)   # y-q=+1
+        assert pinball_loss(y, np.array([1.0]), tau=0.9) == pytest.approx(0.1)    # y-q=-1
+
+    def test_zero_at_perfect(self):
+        y = np.array([1.0, 2.0, 3.0])
+        assert pinball_loss(y, y, tau=0.05) == pytest.approx(0.0)
+        assert pinball_loss(y, y, tau=0.95) == pytest.approx(0.0)
+
+    def test_tau_bounds_validated(self):
+        with pytest.raises(ValueError):
+            pinball_loss(np.array([1.0]), np.array([1.0]), tau=0.0)
+        with pytest.raises(ValueError):
+            pinball_loss(np.array([1.0]), np.array([1.0]), tau=1.0)
+
+    def test_mean_pinball_averages(self):
+        y = np.array([1.0, 2.0, 3.0])
+        preds = {0.1: y + 0.1, 0.9: y - 0.1}
+        expected = 0.5 * (pinball_loss(y, y + 0.1, tau=0.1) + pinball_loss(y, y - 0.1, tau=0.9))
+        assert mean_pinball_loss(y, preds) == pytest.approx(expected)
+
+
+class TestCoverageError:
+    def test_sign_and_magnitude(self):
+        y = np.array([0.0, 5.0, 10.0])
+        lo = np.array([-1.0, 6.0, 9.0])
+        hi = np.array([1.0, 7.0, 11.0])  # 2/3 covered
+        # picp 2/3, nominal 0.90 -> negative (under-coverage)
+        assert coverage_error(y, lo, hi, level=0.90) == pytest.approx(2 / 3 - 0.90)
+
+    def test_zero_when_calibrated(self):
+        y = np.arange(10.0)
+        lo = y - 1
+        hi = y + 1  # full coverage
+        assert coverage_error(y, lo, hi, level=1.0) == pytest.approx(0.0)
 
 
 class TestGuards:
