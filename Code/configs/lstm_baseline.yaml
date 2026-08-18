@@ -12,8 +12,11 @@ seed: 17
 #     three swept fields below on the validation segment) ----------------------
 model:
   features: [log_rv, oc_log_return]   # RV history (as HAR) + the day's open-to-close return
-  lookback: 20                        # trading-day window fed to the LSTM
-  hidden_size: 64
+  # lookback / hidden_size / lr below are the VALIDATION-SELECTED values (the sweep
+  # picks them again on every full run; they are written here so `--no-sweep`
+  # reproduces the headline architecture instead of an un-selected default).
+  lookback: 10                        # trading-day window fed to the LSTM
+  hidden_size: 128
   num_layers: 1                       # roadmap: 1-2 layers
   dropout: 0.1                        # head-level dropout (reused by the Phase 6 MC-Dropout variant)
   lr: 1.0e-3
@@ -43,6 +46,14 @@ sweep:
 robustness:
   rv_only_lstm: true
   rv_only_features: [log_rv]
+  # Auxiliary-feature ablation (Ch1 sec1.8 lists the VIX as an auxiliary feature).
+  # Same architecture and hyperparameters as the main LSTM, plus vix_close, so the
+  # extra row prices the FEATURE rather than a different network. Causality is the
+  # ordinary window rule (window ends t-1 => VIX known at t-1). This is an
+  # exogenous predictor, not the option-implied-volatility paradigm Ch2 sec2.1
+  # puts out of scope.
+  vix_lstm: true
+  vix_features: [log_rv, oc_log_return, log_vix]   # log-VIX: positive + right-skewed, as RV
 
 # --- Walk-forward harness ----------------------------------------------------
 harness:

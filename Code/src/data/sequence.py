@@ -51,6 +51,11 @@ FEATURE_BUILDERS: dict[str, callable] = {
     "log_rv_w": lambda f: np.log(f["rv_w"].astype(float).clip(lower=_EPS)),
     "log_rv_m": lambda f: np.log(f["rv_m"].astype(float).clip(lower=_EPS)),
     "vix_close": lambda f: f["vix_close"].astype(float),
+    # Log-VIX is the preferred form of the auxiliary feature (Ch1 §1.8): the VIX is
+    # positive and right-skewed like RV itself, so logging it puts it on the same
+    # footing as ``log_rv`` and stops a single crisis spike from dominating the
+    # standardised input. ``vix_close`` (raw level) is kept for comparison.
+    "log_vix": lambda f: np.log(f["vix_close"].astype(float).clip(lower=_EPS)),
     # Phase 5 (regime-aware): the Phase-4 causal *filtered* HMM state posteriors,
     # P(s_t | x_1..x_t), joined onto the modelling frame as columns reg_p0..reg_p2
     # (calm / transitional / crisis). Used raw (probabilities in [0,1]); the

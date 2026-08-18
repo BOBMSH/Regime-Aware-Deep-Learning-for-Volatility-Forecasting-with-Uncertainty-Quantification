@@ -11,6 +11,13 @@ regime map's robustness to the modelling choice is visible rather than assumed:
 * :class:`~src.models.regime.jump.JumpModel` — the statistical jump model of
   Nystrup, Lindström & Madsen (2020): temporal k-means with an explicit switch
   penalty ``λ``, fit by coordinate descent (Gaussian MLE + jump-penalised DP).
+* :class:`~src.models.regime.jump_hmm.JumpPenalisedHMM` — the estimator Chapter 2
+  §2.4/§2.8 commits to: a Gaussian HMM whose emissions and transition matrix are
+  read off the jump model's *penalised* state path, so the inherited forward
+  filter yields a causal posterior that carries the jump penalty's persistence
+  instead of EM's over-switching. This is the signal the Phase-5/6 deep models
+  condition on; the plain Baum-Welch HMM above is retained as the regime-
+  estimator robustness comparator.
 
 Both consume the same feature contract from
 :mod:`src.models.regime.features` (standardised daily returns; a returns+log-RV
@@ -28,12 +35,15 @@ from src.models.regime.features import (
 )
 from src.models.regime.hmm import GaussianHMMRegime, RegimePersistence
 from src.models.regime.jump import JumpModel, select_jump_penalty
+from src.models.regime.jump_hmm import JumpPenalisedHMM, select_jump_penalty_causal
 
 __all__ = [
     "GaussianHMMRegime",
     "RegimePersistence",
     "JumpModel",
     "select_jump_penalty",
+    "JumpPenalisedHMM",
+    "select_jump_penalty_causal",
     "build_regime_features",
     "RegimeFeatureSpec",
     "TrainStandardizer",

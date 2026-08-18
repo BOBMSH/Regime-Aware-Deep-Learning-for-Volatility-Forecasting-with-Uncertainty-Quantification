@@ -16,6 +16,11 @@ the Phase 4 gate artifacts:
   smoothed posterior; the leakage-free *filtered* posterior (fit on train only) is
   the object Phase 5 conditions on. The two are compared to show where look-ahead
   would matter.
+* **Two causal signals, one headline.** ``jphmm_filt_p*`` comes from the
+  **jump-penalised HMM** (Nystrup et al. 2020; Ch2 §2.4/§2.8) and is what Phases
+  5–7 condition on; ``hmm_filt_p*`` is the same object for the plain Baum-Welch
+  HMM and is kept as the regime-estimator robustness comparator. Both are fit on
+  the training window only, with λ selected on training rows only.
 
 Outputs
 -------
@@ -53,6 +58,7 @@ from src.models.regime.features import (
 )
 from src.models.regime.hmm import GaussianHMMRegime
 from src.models.regime.jump import JumpModel, select_jump_penalty
+from src.models.regime.jump_hmm import JumpPenalisedHMM, select_jump_penalty_causal
 from src.utils.config import load_config, repo_path, snapshot_config
 from src.utils.io import ensure_dir, to_parquet
 from src.utils.logging import get_logger
@@ -155,6 +161,47 @@ def agreement(hmm_path: np.ndarray, jump_path: np.ndarray) -> dict:
         "raw_agreement": float((hmm_path == jump_path).mean()),
         "adjusted_rand": float(adjusted_rand_score(hmm_path, jump_path)),
     }
+
+
+def causal_signal_table(causal: dict, K: int) -> pd.DataFrame:
+    """Side-by-side summary of the two *causal* regime signals Phase 5/6 can use.
+
+    One row per estimator (jump-penalised HMM = headline, Ch2 §2.8; Baum-Welch
+    HMM = robustness comparator), reporting how persistent the resulting filtered
+    path is, how confident the posterior is, and how much the smoother would have
+    disagreed on the test window (i.e. how much look-ahead was given up). The
+    ``mean_max_posterior`` column is the one to watch when reading Phase-5
+    results: a signal whose posterior sits near 1.0 gives the mixture-of-experts
+    gate an almost-hard routing, which changes what Approach B can learn.
+    """
+    tm = causal["test_mask"]
+    rows = []
+    for label, filt, diverge, lam in (
+        ("jump_penalised_hmm", causal["jp_filt_all"], causal["jp_mean_abs_divergence_test"],
+         causal["lam_causal"]),
+        ("baum_welch_hmm", causal["p_filt_all"], causal["mean_abs_divergence_test"], np.nan),
+    ):
+        state = filt.argmax(axis=1)
+        state_test = state[tm]
+        switches = int(np.count_nonzero(np.diff(state_test)))
+        row = {
+            "signal": label,
+            "lambda": lam,
+            "n_test": int(tm.sum()),
+            "test_switches": switches,
+            "test_mean_duration_days": float(len(state_test) / (switches + 1)),
+            "mean_max_posterior_test": float(filt[tm].max(axis=1).mean()),
+            "mean_abs_smoothed_minus_filtered_test": float(diverge),
+        }
+        for k in range(K):
+            row[f"test_days_state{k}"] = int((state_test == k).sum())
+        rows.append(row)
+    tbl = pd.DataFrame(rows)
+    # Agreement between the two causal hard paths over the test window.
+    a = causal["jp_filt_all"].argmax(axis=1)[tm]
+    b = causal["p_filt_all"].argmax(axis=1)[tm]
+    tbl["agreement_with_other_signal_test"] = float((a == b).mean())
+    return tbl
 
 
 # --------------------------------------------------------------------------- #
@@ -360,11 +407,34 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         test_mask = np.asarray((feats.index >= pd.Timestamp(cd.splits.test_start)) &
                                (feats.index <= pd.Timestamp(cd.splits.test_end)))
         diverge = float(np.abs(p_smooth_all[:, crisis] - p_filt_all[:, crisis])[test_mask].mean())
+
+        # --- Jump-penalised HMM: the estimator Ch2 §2.4/§2.8 commits to, and the
+        # signal Phase 5/6 condition on. lambda is re-selected on TRAINING rows
+        # only (the full-sample lambda above is descriptive and would leak).
+        lam_causal, lam_tbl_tr = select_jump_penalty_causal(
+            Xz_causal[train_mask], K, [float(x) for x in cfg.jump_penalty_grid],
+            min_mean_duration_days=float(cfg.select_by_persistence.min_mean_duration_days),
+            n_init=int(cfg.models.jump.n_init), seed=seed)
+        jphmm_tr = JumpPenalisedHMM(K, jump_penalty=lam_causal,
+                                    covariance_type=cfg.models.hmm.covariance_type,
+                                    n_init=int(cfg.models.jump.n_init),
+                                    max_iter=int(cfg.models.jump.max_iter),
+                                    seed=seed).fit(Xz_causal[train_mask])
+        jp_filt_all = jphmm_tr.filtered_proba(Xz_causal)
+        jp_smooth_all = jphmm_tr.smoothed_proba(Xz_causal)
+        jp_diverge = float(
+            np.abs(jp_smooth_all[:, crisis] - jp_filt_all[:, crisis])[test_mask].mean())
+
         causal = {"train_end": train_end, "test_mask": test_mask,
                   "p_filt_all": p_filt_all, "p_smooth_all": p_smooth_all,
                   "mean_abs_divergence_test": diverge, "crisis": crisis,
-                  "hmm_tr": hmm_tr}
-        log.info("causal demo: mean |smoothed-filtered| P(crisis) on test = %.3f", diverge)
+                  "hmm_tr": hmm_tr,
+                  "jp_filt_all": jp_filt_all, "jp_smooth_all": jp_smooth_all,
+                  "jp_mean_abs_divergence_test": jp_diverge,
+                  "jphmm_tr": jphmm_tr, "lam_causal": lam_causal,
+                  "lam_tbl_tr": lam_tbl_tr}
+        log.info("causal demo: mean |smoothed-filtered| P(crisis) on test = %.3f "
+                 "(HMM) / %.3f (jump-penalised HMM)", diverge, jp_diverge)
 
     # --- 5. Persist predictions frame (Phase-5 conditioning input) ---
     out = pd.DataFrame(index=feats.index)
@@ -382,6 +452,10 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         out["hmm_filt_state"] = causal["p_filt_all"].argmax(axis=1)
         for k in range(K):
             out[f"hmm_filt_p{k}"] = causal["p_filt_all"][:, k]
+        # Jump-penalised HMM: the HEADLINE Phase-5/6 conditioning signal (Ch2 §2.8).
+        out["jphmm_filt_state"] = causal["jp_filt_all"].argmax(axis=1)
+        for k in range(K):
+            out[f"jphmm_filt_p{k}"] = causal["jp_filt_all"][:, k]
 
     paths = cfg.paths
     pred_path = repo_path(paths.predictions, f"m04_regimes_{name}.parquet")
@@ -396,6 +470,17 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                    "headline_k": K, "lambda": lam,
                    **{k: v for k, v in conf_extra.items() if np.isscalar(v)}}]
                  ).to_csv(repo_path(paths.tables, f"m04_regimes_{name}_agreement.csv"), index=False)
+
+    # Causal-signal comparison: the two leakage-free posteriors Phase 5/6 can
+    # consume, side by side. The jump-penalised HMM is the headline (Ch2 §2.8);
+    # the Baum-Welch HMM is the regime-estimator robustness comparator.
+    causal_tbl = None
+    if causal is not None:
+        causal_tbl = causal_signal_table(causal, K)
+        causal_tbl.to_csv(
+            repo_path(paths.tables, f"m04_regimes_{name}_causal_signals.csv"), index=False)
+        causal["lam_tbl_tr"].to_csv(
+            repo_path(paths.tables, f"m04_regimes_{name}_jump_lambda_train.csv"), index=False)
 
     # --- 6. Figures ---
     figdir = repo_path(paths.figures, "m04"); ensure_dir(figdir)
@@ -413,12 +498,21 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         plot_smoothed_vs_filtered(feats.index[tm], causal["p_smooth_all"][tm, cr],
                                   causal["p_filt_all"][tm, cr],
                                   figdir / f"{name}_smoothed_vs_filtered.png")
+        plot_smoothed_vs_filtered(feats.index[tm], causal["jp_smooth_all"][tm, cr],
+                                  causal["jp_filt_all"][tm, cr],
+                                  figdir / f"{name}_smoothed_vs_filtered_jphmm.png")
+        plot_regime_map(feats.index[tm], frame["rv"].to_numpy()[tm],
+                        causal["jp_filt_all"][tm].argmax(axis=1), K,
+                        f"Test-window RV by causal jump-penalised-HMM regime "
+                        f"(K={K}, λ={causal['lam_causal']:.0f}) — {name}",
+                        figdir / f"{name}_regime_map_jphmm_causal.png")
 
     return {
         "name": name, "K": K, "k_grid": k_grid, "bic_tbl": bic_tbl,
         "hmm_bic_k": hmm_bic_k, "jump_bic_k": jump_bic_k, "lam": lam, "lam_tbl": lam_tbl,
         "pers_tbl": pers_tbl, "conf_df": conf_df, "conf_extra": conf_extra, "agree": agree,
-        "hmm": hmm, "jump": jump, "causal": causal, "n_obs": len(feats),
+        "hmm": hmm, "jump": jump, "causal": causal, "causal_tbl": causal_tbl,
+        "n_obs": len(feats),
         "feat_cols": list(feats.columns), "span": (feats.index.min(), feats.index.max()),
         "pred_path": pred_path, "fast": bool(args.fast),
     }
@@ -515,26 +609,79 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  "smoother's hindsight matters most.\n".format(
                      te=pd.Timestamp(c["train_end"]).date(), d=c["mean_abs_divergence_test"]))
         p.append(f"\n![smoothed vs filtered](../figures/m04/{name}_smoothed_vs_filtered.png)\n")
+
+        # --- Jump-penalised HMM: the headline conditioning signal (Ch2 §2.4/§2.8) ---
+        cs = ctx.get("causal_tbl")
+        p.append("## The conditioning signal — jump-penalised HMM (Ch2 §2.4/§2.8)\n")
+        p.append("Chapter 2 §2.4 adopts the **Nystrup, Lindström & Madsen (2020)** jump-penalised "
+                 "estimator as the remedy for the HMM's state-switching noise, and §2.8 conditions "
+                 "the regime-aware LSTMs on *\"a Gaussian-emission HMM estimated with the Nystrup "
+                 "jump penalty\"*. That estimator is `JumpPenalisedHMM`: the jump model's penalised "
+                 "state path supplies the state sequence, the Gaussian emissions and the transition "
+                 "matrix are estimated from that path (with a Laplace pseudo-count so the chain "
+                 "stays irreducible), and the ordinary forward recursion then yields a genuine "
+                 "causal posterior P(sₜ | x₁..xₜ). Using the jump model's own `predict_proba` "
+                 "instead would not do: it is a softmax over the emission loss alone and ignores "
+                 "the jump penalty, i.e. exactly the persistence the chapter argues for.\n")
+        p.append(f"The penalty is **re-selected on the training rows only** "
+                 f"(λ = **{c['lam_causal']:.0f}**, smallest λ on the grid whose mean regime "
+                 "duration clears the persistence floor); the full-sample λ reported above is "
+                 "descriptive and would leak into the forecast if reused here (roadmap Phase 4: "
+                 "*the regularisation parameter is also CV-selected on training-only data*). "
+                 f"The train-only sweep is in `results/tables/m04_regimes_{name}_jump_lambda_train.csv`.\n")
+        if cs is not None:
+            # Build the whole table as ONE element: the surrounding "\n".join(p)
+            # would otherwise put a blank line between rows and break the markdown.
+            lines = [
+                "| causal signal | λ | test switches | mean duration (d) | "
+                "mean max posterior | \\|smoothed−filtered\\| | calm/trans/crisis days |",
+                "|---|---|---|---|---|---|---|",
+            ]
+            for _, r in cs.iterrows():
+                lam_txt = "—" if not np.isfinite(r["lambda"]) else f"{r['lambda']:.0f}"
+                days = "/".join(str(int(r[f"test_days_state{k}"])) for k in range(K))
+                lines.append(
+                    f"| {r['signal']} | {lam_txt} | {int(r['test_switches'])} | "
+                    f"{r['test_mean_duration_days']:.1f} | {r['mean_max_posterior_test']:.3f} | "
+                    f"{r['mean_abs_smoothed_minus_filtered_test']:.3f} | {days} |"
+                )
+            p.append("\n".join(lines) + "\n")
+            p.append(f"The two causal hard paths agree on "
+                     f"**{cs['agreement_with_other_signal_test'].iloc[0]*100:.1f}%** of test days. "
+                     "A high agreement is the *robustness* reading: it means the Phase-5/6 "
+                     "conclusions cannot be an artefact of which regime estimator drew the "
+                     "state boundaries.\n")
+        p.append(f"\n![smoothed vs filtered (jump-penalised HMM)]"
+                 f"(../figures/m04/{name}_smoothed_vs_filtered_jphmm.png)\n")
+        p.append(f"\n![causal jump-penalised regime map]"
+                 f"(../figures/m04/{name}_regime_map_jphmm_causal.png)\n")
+
         te_note = pd.Timestamp(c["train_end"]).date()
-        p.append("> **Phase-5 hand-off / Ch3 note.** The persisted `hmm_filt_p*` columns hold the "
-                 "**causal filtered** posterior P(sₜ | x₁..xₜ) from a *single* HMM fit on the "
-                 f"**training split only** (≤ {te_note}; standardisation also fit on train only), "
-                 "then filtered forward over the whole sample. The model is **not** refit as the "
-                 "walk-forward expands — it is frozen at its training-window fit, a deliberately "
-                 "conservative choice that keeps every out-of-sample day leakage-free. Each value "
-                 "is aligned to its own date t (it uses the return of day t but nothing after it) "
-                 "and is **not** pre-lagged; Phase 5 consumes it leakage-safely through the "
-                 "ordinary sliding-window rule, because the LSTM input window ends at t−1, so a "
-                 "forecast for RVₜ only ever sees regime posteriors dated ≤ t−1. Chapter 2 §2.5 "
-                 "already describes the LSTM as conditioned on the *filtered* (causal) state "
-                 "probabilities; Chapter 3 should additionally note that the HMM is frozen at its "
-                 "training-window fit (not refit per fold).\n")
+        p.append("> **Phase-5 hand-off / Ch3 note.** Two causal signals are persisted. The "
+                 "**headline** one is `jphmm_filt_p*` — the causal filtered posterior "
+                 "P(sₜ | x₁..xₜ) of the **jump-penalised HMM**, which is what Phases 5–7 condition "
+                 "on, matching Ch2 §2.8. `hmm_filt_p*` holds the same object for the plain "
+                 "Baum-Welch HMM and is retained as the **regime-estimator robustness comparator** "
+                 f"(both are a *single* fit on the **training split only** (≤ {te_note}; "
+                 "standardisation and λ also fit/selected on train only), then filtered forward "
+                 "over the whole sample). Neither model is refit as the walk-forward expands — "
+                 "each is frozen at its training-window fit, a deliberately conservative choice "
+                 "that keeps every out-of-sample day leakage-free. Each value is aligned to its own "
+                 "date t (it uses the return of day t but nothing after it) and is **not** "
+                 "pre-lagged; Phase 5 consumes it leakage-safely through the ordinary "
+                 "sliding-window rule, because the LSTM input window ends at t−1, so a forecast "
+                 "for RVₜ only ever sees regime posteriors dated ≤ t−1. Chapter 3 should state "
+                 "both deviations from the roadmap's §1.3 rule 2: the regime model is frozen at "
+                 "its training-window fit rather than refit per fold, and λ is selected by the "
+                 "persistence rule on training rows rather than by cross-validated likelihood.\n")
 
     p.append("## Artifacts\n")
     p.append(f"- **Predictions (Phase-5 input):** `results/predictions/m04_regimes_{name}.parquet` — "
-             "per-day `hmm_state`, `hmm_p*` (smoothed), `jump_state`, `jump_p*`, and causal "
-             "`hmm_filt_state`/`hmm_filt_p*`, with `rv` and `vix_close`.\n")
-    p.append(f"- **Tables:** `results/tables/m04_regimes_{name}_{{bic,persistence,vix_confusion,jump_lambda,agreement}}.csv`.\n")
+             "per-day `hmm_state`, `hmm_p*` (smoothed), `jump_state`, `jump_p*`, the **headline** "
+             "causal `jphmm_filt_state`/`jphmm_filt_p*` (jump-penalised HMM) and the comparator "
+             "causal `hmm_filt_state`/`hmm_filt_p*` (Baum–Welch), with `rv` and `vix_close`.\n")
+    p.append(f"- **Tables:** `results/tables/m04_regimes_{name}_{{bic,persistence,vix_confusion,"
+             "jump_lambda,jump_lambda_train,agreement,causal_signals}}.csv`.\n")
 
     p.append("## Gate criteria\n")
     p.append("- [x] Gaussian-emission HMM on standardised daily log returns (Baum–Welch, restarts).\n")
@@ -544,6 +691,8 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append("- [x] External validation against VIX quantiles (confusion + rank concordance).\n")
     p.append("- [x] Volatility-ordered states; HMM↔jump agreement reported.\n")
     p.append("- [x] Leakage-free causal filtered posterior built + demonstrated for Phase 5.\n")
+    p.append("- [x] **Jump-penalised HMM** (Ch2 §2.4/§2.8) fit on train-only data with a train-only "
+             "λ, filtered causally, and persisted as the headline Phase-5/6 conditioning signal.\n")
 
     p.append("## Reproduce\n")
     p.append("```\npython -m src.experiments.run_regimes\n"

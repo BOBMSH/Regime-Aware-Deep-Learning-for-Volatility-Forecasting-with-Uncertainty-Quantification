@@ -451,6 +451,10 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
         return float(r["picp"].iloc[0]) if len(r) and pd.notna(r["picp"].iloc[0]) else np.nan
     calm_mc, cris_mc = picp_of(pr_mc, labels[0]), picp_of(pr_mc, labels[-1])
     calm_q, cris_q = picp_of(pr_q, labels[0]), picp_of(pr_q, labels[-1])
+    # Crisis-state sample size, read from the table rather than hardcoded: the
+    # regime estimator (and therefore the bucket size) is config-driven.
+    _cris = pr_mc[pr_mc["regime"] == labels[-1]]
+    n_crisis = int(_cris["n"].iloc[0]) if len(_cris) else 0
     p.append(f"**Coverage degrades in the crisis regime — exactly the RQ3 hypothesis.** Both methods "
              f"cover better in the **{labels[0]}** state (MC-Dropout {calm_mc*100:.0f}%, quantile "
              f"{calm_q*100:.0f}%) than in the **{labels[-1]}** state (MC-Dropout {cris_mc*100:.0f}%, "
@@ -468,7 +472,7 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
              "contrast, *can* learn a state-dependent width directly from the pinball objective. That "
              "the distribution-free quantile intervals still under-cover the crisis more than the "
              "parametric ones is therefore the substantive finding — neither device fully solves "
-             "crisis calibration on 70 COVID-era days, which motivates the Phase-7 combined "
+             f"crisis calibration on {n_crisis} COVID-era days, which motivates the Phase-7 combined "
              "regime × uncertainty model and a conformal or regime-conditional recalibration as "
              "the natural next step.\n")
 
@@ -643,9 +647,12 @@ def main(argv: list[str] | None = None) -> int:
                         f"run_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     snapshot_config(cfg, run_dir)
 
+    # Config-driven milestone filename so the Baum-Welch robustness variant
+    # (configs/uq_hmm.yaml) cannot overwrite the headline note.
+    milestone_file = str(cfg.paths.get("milestone_file") or "m06_uq.md")
     for profile in cfg.profiles:
         ctx = run_profile(data_cfg, cfg, profile, args)
-        write_milestone(ctx, repo_path(cfg.paths.milestones, "m06_uq.md"))
+        write_milestone(ctx, repo_path(cfg.paths.milestones, milestone_file))
     log.info("Phase 6 complete.")
     return 0
 

@@ -327,6 +327,26 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  f"**{ro_q:.4f}** vs full LSTM {lstm_q:.4f} and HAR-RV {har2:.4f}. {interp} Formal "
                  f"DM (RV-only − HAR-RV): stat {rdm['dm_stat']:.2f}, p≈{rdm['p_value']:.3f}.\n")
 
+    # --- Auxiliary-feature ablation: does the VIX earn its place? (Ch1 §1.8) ---
+    if ctx.get("vix_feats"):
+        m = ctx["metrics"]
+        vq = float(m.loc["LSTM-VIX", "qlike"]); lq = float(m.loc["LSTM", "qlike"])
+        vdm = ctx.get("vix_dm") or {"dm_stat": float("nan"), "p_value": float("nan")}
+        better = vq < lq
+        verdict = (
+            f"adding it {'lowers' if better else 'raises'} QLIKE ({vq:.4f} vs {lq:.4f}), and the "
+            f"difference is {'significant' if vdm['p_value'] < 0.05 else 'not significant'} "
+            f"(DM {vdm['dm_stat']:.2f}, p≈{vdm['p_value']:.3f})"
+        )
+        p.append("## Auxiliary feature — the VIX (Ch1 §1.8)\n")
+        p.append(f"Chapter 1 §1.8 lists the CBOE VIX as an *auxiliary feature*. It is evaluated here as "
+                 f"a one-feature ablation: the identical architecture and hyperparameters with "
+                 f"`vix_close` appended (`{ctx['vix_feats']}`), so the row prices the feature and "
+                 f"nothing else. On the test window {verdict}. The window ends at t−1, so a forecast "
+                 f"for RVₜ sees the VIX only up to t−1; and because the VIX enters as an exogenous "
+                 f"predictor rather than as a competing implied-volatility model, this does not "
+                 f"re-open the option-implied paradigm Chapter 2 §2.1 places out of scope.\n")
+
     p.append("## Gate criteria\n")
     p.append("- [x] PyTorch `Dataset`-style sliding windows; vanilla LSTM regressor (dropout, MSE).\n")
     p.append("- [x] Hyperparameter sweep on validation (hidden × lookback × lr); heatmap saved.\n")
@@ -335,6 +355,9 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append("- [x] Learning curves saved.\n")
     p.append("- [x] Head-to-head vs GARCH(1,1)/EGARCH/HAR-RV on identical splits; predictions persisted.\n")
     p.append("- [x] Robustness: RV-only (HAR-matched-input) LSTM benchmarked to isolate architecture from inputs.\n")
+    if ctx.get("vix_feats"):
+        p.append("- [x] Auxiliary-feature ablation: VIX-augmented LSTM benchmarked against the "
+                 "identical network without it (Ch1 §1.8).\n")
 
     p.append("## Reproduce\n")
     p.append("```\npython -m src.experiments.run_lstm\n"
@@ -354,7 +377,15 @@ def run_profile(data_cfg, lcfg, profile, args) -> dict:
     log.info("=" * 70)
     log.info("PROFILE %s | target=%s", name, profile.target)
 
-    include_vix = "vix_close" in list(profile_features(lcfg))
+    # VIX must be joined onto the frame if *any* variant asks for it -- the main
+    # feature set or one of the robustness variants (the auxiliary-feature ablation).
+    _rob = lcfg.get("robustness", {}) or {}
+    _all_feats = list(profile_features(lcfg))
+    for _key in ("rv_only_features", "vix_features"):
+        if _key in _rob:
+            _all_feats += list(OmegaConf.to_container(_rob[_key], resolve=True))
+    # Both VIX feature builders read the same underlying `vix_close` column.
+    include_vix = any(f in ("vix_close", "log_vix") for f in _all_feats)
     frame = build_econometric_frame(data_cfg, target=profile.target, include_vix=include_vix)
 
     sp = profile.splits
@@ -402,12 +433,32 @@ def run_profile(data_cfg, lcfg, profile, args) -> dict:
         ro_preds = run_walk_forward([m_ro], frame, split_cfg,
                                     eval_segment=lcfg.harness.eval_segment, strict=True)
 
+    # --- 3b. Auxiliary-feature ablation: + VIX (Ch1 §1.8) ---
+    # Chapter 1 §1.8 lists the CBOE VIX as an *auxiliary feature*. It enters here
+    # and nowhere else: the same architecture and hyperparameters as the main LSTM
+    # with `vix_close` appended, so the row isolates what the auxiliary feature is
+    # worth rather than confounding it with a different network. Causality is the
+    # ordinary sliding-window rule -- the window ends at t−1, so a forecast for RVₜ
+    # sees VIX up to t−1 only. Note for Ch3: the VIX enters as an exogenous
+    # predictor, which is *not* the option-implied-volatility modelling paradigm
+    # Ch2 §2.1 places out of scope.
+    vix_feats = None
+    if bool(rob.get("vix_lstm", False)):
+        vix_feats = tuple(OmegaConf.to_container(rob.vix_features, resolve=True))
+        m_vx = make_forecaster(lcfg.model, lcfg.harness, hidden=best["hidden_size"],
+                               lookback=best["lookback"], lr=best["lr"], seed=int(lcfg.seed),
+                               name="LSTM-VIX", max_epochs=max_epochs, features=vix_feats)
+        vx_preds = run_walk_forward([m_vx], frame, split_cfg,
+                                    eval_segment=lcfg.harness.eval_segment, strict=True)
+
     # --- 4. Head-to-head with Phase 2 baselines ---
     base_path = repo_path(profile.baseline_predictions)
     combined = from_parquet(base_path).copy()
     combined["LSTM"] = lstm_preds["LSTM"].reindex(combined.index)
     if rv_only_feats is not None:
         combined["LSTM-RVonly"] = ro_preds["LSTM-RVonly"].reindex(combined.index)
+    if vix_feats is not None:
+        combined["LSTM-VIX"] = vx_preds["LSTM-VIX"].reindex(combined.index)
     combined = combined.dropna(subset=["LSTM"])
     metrics = evaluate_predictions(combined)
     log.info("PROFILE %s metrics (QLIKE-ranked):\n%s", name, metrics.round(6).to_string())
@@ -416,6 +467,10 @@ def run_profile(data_cfg, lcfg, profile, args) -> dict:
     dm = diebold_mariano(y, combined["LSTM"], combined["HAR-RV"])
     rv_only_dm = (diebold_mariano(y, combined["LSTM-RVonly"], combined["HAR-RV"])
                   if "LSTM-RVonly" in combined.columns else None)
+    # Does the auxiliary feature earn its place? Tested against the identical
+    # network without it, so the comparison is the feature and nothing else.
+    vix_dm = (diebold_mariano(y, combined["LSTM-VIX"], combined["LSTM"])
+              if "LSTM-VIX" in combined.columns else None)
 
     # --- 5. Persist + figures ---
     pred_path = repo_path(lcfg.paths.predictions, f"m03_lstm_{name}.parquet")
@@ -445,6 +500,7 @@ def run_profile(data_cfg, lcfg, profile, args) -> dict:
         "n_oos": int(len(combined)), "n_folds": ctx_n_folds(frame, split_cfg, lcfg),
         "fast": bool(args.fast), "pred_path": pred_path,
         "rv_only_dm": rv_only_dm, "rv_only_feats": list(rv_only_feats) if rv_only_feats else None,
+        "vix_dm": vix_dm, "vix_feats": list(vix_feats) if vix_feats else None,
     }
 
 

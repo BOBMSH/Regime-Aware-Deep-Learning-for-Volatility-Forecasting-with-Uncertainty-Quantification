@@ -16,14 +16,33 @@
 seed: 17
 
 # --- Regime signal (Phase-4 output consumed as the conditioning input) --------
+# HEADLINE = the JUMP-PENALISED HMM (Nystrup, Lindstrom & Madsen 2020), which is
+# what Ch2 sec2.4 ("adopts the jump-penalised estimator directly") and sec2.8
+# ("a Gaussian-emission HMM estimated with the Nystrup jump penalty") commit to.
+# The plain Baum-Welch HMM signal is the regime-estimator ROBUSTNESS comparator
+# and is run from configs/regime_lstm_hmm.yaml (profile intraday_2019_2022_hmm).
 regime:
   # Phase-4 predictions parquet holding the causal filtered posteriors.
   source: "results/predictions/m04_regimes_intraday_2019_2022.parquet"
   # Use the CAUSAL FILTERED posteriors (leakage-free) -- NOT the smoothed ones.
   # Renamed to reg_p0..reg_p2 on the modelling frame.
-  posterior_cols: [hmm_filt_p0, hmm_filt_p1, hmm_filt_p2]
-  state_col: hmm_filt_state          # causal hard state, for the per-regime breakdown
+  posterior_cols: [jphmm_filt_p0, jphmm_filt_p1, jphmm_filt_p2]
+  state_col: jphmm_filt_state        # causal hard state, for the per-regime breakdown
   labels: [calm, transitional, crisis]
+
+# --- Comparison scope -------------------------------------------------------
+# Models carried in the Phase-3 predictions parquet that are EXCLUDED from the
+# Phase-5 comparison table, DM pairs and Model Confidence Set.
+#
+# LSTM-VIX is excluded because it consumes option-implied information (the CBOE
+# VIX) that no other model on the board can see. Including it would compare
+# models with unequal information sets -- the exact confound the RV-only control
+# exists to avoid -- and would pull the MCS toward a model whose advantage is
+# informational rather than architectural. It is reported as an auxiliary-feature
+# ablation in Phase 3 (results/milestones/m03_lstm.md; Ch1 sec1.8), which is the
+# honest place for it.
+comparison:
+  exclude_models: [LSTM-VIX]
 
 # --- Network + optimisation (fixed at the Phase-3 selection) -------------------
 model:
@@ -60,7 +79,7 @@ profiles:
   - name: intraday_2019_2022
     headline: true
     target: oxfordman_rv5
-    description: "Regime-aware LSTM (feature + expert) vs the Phase-2/3 baselines on the canonical Oxford-Man rv5 target; test 2019-01 -> 2022-02-25, COVID-19 out-of-sample. Regime signal = Phase-4 causal filtered HMM posteriors."
+    description: "Regime-aware LSTM (feature + expert) vs the Phase-2/3 baselines on the canonical Oxford-Man rv5 target; test 2019-01 -> 2022-02-25, COVID-19 out-of-sample. Regime signal = Phase-4 causal filtered JUMP-PENALISED HMM posteriors (Nystrup et al. 2020; Ch2 sec2.4/sec2.8)."
     # Phase-3 predictions (GARCH/EGARCH/HAR-RV/RW-RV/LSTM/LSTM-RVonly + y_true).
     baseline_predictions: "results/predictions/m03_lstm_intraday_2019_2022.parquet"
     splits:

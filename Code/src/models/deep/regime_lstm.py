@@ -71,7 +71,8 @@ class RegimeExpertForecaster:
         this is the same input set as the regime-agnostic LSTM it is compared to.
     gate_cols : the regime-posterior columns on the frame (``reg_p0..reg_p{K-1}``);
         ``K`` = ``len(gate_cols)``. These must be the **causal filtered**
-        posteriors (Phase-4 ``hmm_filt_p*``); they are lagged one day inside this
+        posteriors (Phase-4 ``jphmm_filt_p*`` for the headline jump-penalised HMM,
+        ``hmm_filt_p*`` for the Baum-Welch comparator); they are lagged one day inside this
         class so the gate for day ``t`` uses only information known at ``t-1``.
     lookback, hidden_size, num_layers, dropout : per-expert network shape.
     lr, weight_decay, batch_size, max_epochs, patience, grad_clip, val_fraction :

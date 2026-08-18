@@ -1,0 +1,95 @@
+# Phase 5 -- ROBUSTNESS variant: regime-aware LSTM conditioned on the plain
+# Baum-Welch HMM posterior instead of the headline jump-penalised HMM.
+# Run with:  python -m src.experiments.run_regime_lstm --config regime_lstm_hmm
+#
+# WHY THIS EXISTS
+# ---------------
+# Chapter 2 sec2.4/sec2.8 commit the dissertation to conditioning on a Gaussian
+# HMM *estimated with the Nystrup et al. (2020) jump penalty*; configs/regime_lstm.yaml
+# is that headline run. Regime identification is itself an inferential problem
+# (Ch2 sec2.4: "a model conditioned on a misclassified regime inherits that error"),
+# so the same architectures are re-run on the plain Baum-Welch posterior and the
+# two are compared. If the conclusions are unchanged, the regime-estimator choice
+# is shown not to drive the result; if they differ, that difference IS the finding.
+#
+# Everything below is identical to configs/regime_lstm.yaml except:
+#   * regime.posterior_cols / regime.state_col -> the hmm_filt_* columns
+#   * profiles[0].name                         -> intraday_2019_2022_hmm (namespaces
+#     every table / figure / parquet so the headline outputs are never overwritten)
+#   * paths.milestone_file                     -> m05_regime_dl_hmm.md
+
+seed: 17
+
+# --- Regime signal: the Baum-Welch HMM comparator ----------------------------
+regime:
+  source: "results/predictions/m04_regimes_intraday_2019_2022.parquet"
+  posterior_cols: [hmm_filt_p0, hmm_filt_p1, hmm_filt_p2]
+  state_col: hmm_filt_state
+  labels: [calm, transitional, crisis]
+
+# --- Comparison scope -------------------------------------------------------
+# Models carried in the Phase-3 predictions parquet that are EXCLUDED from the
+# Phase-5 comparison table, DM pairs and Model Confidence Set.
+#
+# LSTM-VIX is excluded because it consumes option-implied information (the CBOE
+# VIX) that no other model on the board can see. Including it would compare
+# models with unequal information sets -- the exact confound the RV-only control
+# exists to avoid -- and would pull the MCS toward a model whose advantage is
+# informational rather than architectural. It is reported as an auxiliary-feature
+# ablation in Phase 3 (results/milestones/m03_lstm.md; Ch1 sec1.8), which is the
+# honest place for it.
+comparison:
+  exclude_models: [LSTM-VIX]
+
+# --- Network + optimisation (fixed at the Phase-3 selection) -----------------
+model:
+  base_features: [log_rv, oc_log_return]
+  regime_features: [reg_p0, reg_p1, reg_p2]
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 90
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+
+# --- Which architectures to run ---------------------------------------------
+approaches:
+  feature_full: true      # Regime-LSTM-A
+  feature_rvonly: true    # Regime-LSTM-A-RVonly
+  experts: true           # Regime-LSTM-B
+
+# --- Walk-forward harness (identical to Phase 3) ----------------------------
+harness:
+  refit_every_folds: 0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profile ------------------------------------------------------
+profiles:
+  - name: intraday_2019_2022_hmm
+    headline: false
+    target: oxfordman_rv5
+    description: "ROBUSTNESS (regime-estimator sensitivity, not the headline): regime-aware LSTMs conditioned on the causal filtered BAUM-WELCH HMM posterior. Identical splits, hyperparameters and harness to the headline jump-penalised-HMM run, so the only difference is the regime estimator."
+    baseline_predictions: "results/predictions/m03_lstm_intraday_2019_2022.parquet"
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+# --- Output paths ------------------------------------------------------------
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m05_regime_dl_hmm.md"
+  experiments: "experiments"

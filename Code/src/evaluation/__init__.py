@@ -32,9 +32,15 @@ from src.evaluation.metrics import (
 )
 from src.evaluation.significance import (
     diebold_mariano,
+    dm_lag_sensitivity,
     dm_pairs_table,
+    giacomini_white,
+    ljung_box,
+    loss_differential,
     model_confidence_set,
     qlike_loss,
+    regime_test_function,
+    sample_acf,
 )
 
 __all__ = [
@@ -51,8 +57,14 @@ __all__ = [
     "mean_pinball_loss",
     "diebold_mariano",
     "dm_pairs_table",
+    "giacomini_white",
+    "regime_test_function",
     "model_confidence_set",
     "qlike_loss",
+    "loss_differential",
+    "sample_acf",
+    "ljung_box",
+    "dm_lag_sensitivity",
     "interval_metrics",
     "lognormal_interval",
     "lognormal_quantile",

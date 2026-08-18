@@ -1,0 +1,83 @@
+# Phase 6 -- ROBUSTNESS variant: per-regime calibration split by the plain
+# Baum-Welch HMM state instead of the headline jump-penalised HMM state.
+# Run with:  python -m src.experiments.run_uq --config uq_hmm
+#
+# The regime signal is NOT a model input in Phase 6 -- it only defines the
+# per-regime calibration breakdown (RQ3). This variant therefore answers a narrow
+# but fair question: is the "coverage degrades in the crisis regime" finding an
+# artefact of which regime estimator drew the crisis boundary? Identical models,
+# identical intervals; only the partition of the test window changes.
+#
+# Everything below is identical to configs/uq.yaml except:
+#   * regime.posterior_cols / regime.state_col -> the hmm_filt_* columns
+#   * profiles[0].name / baseline_predictions  -> the _hmm Phase-5 outputs
+#   * paths.milestone_file                     -> m06_uq_hmm.md
+
+seed: 17
+
+# --- Regime signal (per-regime calibration split only) -----------------------
+regime:
+  source: "results/predictions/m04_regimes_intraday_2019_2022.parquet"
+  posterior_cols: [hmm_filt_p0, hmm_filt_p1, hmm_filt_p2]
+  state_col: hmm_filt_state
+  labels: [calm, transitional, crisis]
+
+# --- Network + optimisation (fixed at the Phase-3 selection) -----------------
+model:
+  features: [log_rv, oc_log_return]
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 90
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+
+# --- Uncertainty-quantification settings -------------------------------------
+uq:
+  mc_dropout:
+    enabled: true
+    mc_samples: 100
+    mc_seed: 17
+  quantile:
+    enabled: true
+    quantiles: [0.05, 0.5, 0.95]
+  levels: [0.90, 0.95]
+  headline_level: 0.90
+  reliability_taus: [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95]
+
+# --- Walk-forward harness (identical to Phase 3/5) ---------------------------
+harness:
+  refit_every_folds: 0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profile ------------------------------------------------------
+profiles:
+  - name: intraday_2019_2022_hmm
+    headline: false
+    target: oxfordman_rv5
+    description: "ROBUSTNESS (regime-estimator sensitivity, not the headline): identical MC-Dropout and quantile LSTMs, with the per-regime calibration table split by the causal filtered BAUM-WELCH HMM state."
+    baseline_predictions: "results/predictions/m05_regime_dl_intraday_2019_2022_hmm.parquet"
+    lstm_point_col: "LSTM"
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+# --- Output paths ------------------------------------------------------------
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m06_uq_hmm.md"
+  experiments: "experiments"

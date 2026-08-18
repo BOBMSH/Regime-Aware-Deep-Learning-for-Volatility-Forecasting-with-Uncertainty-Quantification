@@ -19,8 +19,10 @@ seed: 17
 # breakdown (RQ3) -- NOT as a model input (the combined regime x UQ model is Phase 7).
 regime:
   source: "results/predictions/m04_regimes_intraday_2019_2022.parquet"
-  posterior_cols: [hmm_filt_p0, hmm_filt_p1, hmm_filt_p2]
-  state_col: hmm_filt_state            # causal hard state, for the per-regime split
+  # HEADLINE signal = the jump-penalised HMM (Ch2 sec2.4/sec2.8), matching Phase 5.
+  # The Baum-Welch comparator runs from configs/uq_hmm.yaml.
+  posterior_cols: [jphmm_filt_p0, jphmm_filt_p1, jphmm_filt_p2]
+  state_col: jphmm_filt_state          # causal hard state, for the per-regime split
   labels: [calm, transitional, crisis]
 
 # --- Network + optimisation (fixed at the Phase-3 selection) -------------------

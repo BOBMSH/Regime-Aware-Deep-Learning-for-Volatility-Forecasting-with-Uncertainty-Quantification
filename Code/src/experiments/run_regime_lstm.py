@@ -1,6 +1,9 @@
 """Phase 5 driver -- regime-aware LSTM end-to-end (ROADMAP.md Phase 5 gate; RQ2).
 
-Conditions the Phase-3 LSTM on the Phase-4 HMM regime posteriors and runs the
+Conditions the Phase-3 LSTM on the Phase-4 causal regime posteriors -- by default
+those of the jump-penalised HMM (Nystrup et al. 2020; Ch2 §2.4/§2.8), with the
+Baum-Welch HMM available as a robustness variant (configs/regime_lstm_hmm.yaml) --
+and runs the
 result head-to-head against the regime-agnostic LSTM and the econometric
 baselines on the *identical* leakage-free anchored walk-forward. Two conditioning
 architectures are built (roadmap Phase 5):
@@ -272,12 +275,24 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
         p.append("> ⚠️ **FAST pass** — reduced epochs for a quick CPU run. Re-run "
                  "`python -m src.experiments.run_regime_lstm` (full config) before citing.\n")
 
+    # The conditioning signal is config-driven (jump-penalised HMM by default,
+    # Baum-Welch in the robustness variant), so the note must describe whichever
+    # was actually consumed rather than assert one of them.
+    src_cols = list(ctx.get("regime_cols") or [])
+    is_jphmm = any(str(c).startswith("jphmm") for c in src_cols)
+    estimator = (
+        "**jump-penalised HMM** (Nystrup, Lindström & Madsen 2020 — the estimator "
+        "Ch2 §2.4/§2.8 adopts)" if is_jphmm else
+        "**Baum–Welch HMM** (the regime-estimator robustness comparator; the headline "
+        "run conditions on the jump-penalised HMM per Ch2 §2.8)"
+    )
+    cols_txt = ", ".join(f"`{c}`" for c in src_cols) or "`*_filt_p*`"
     p.append("## Scope\n")
-    p.append("Roadmap Phase 5 (Ch2 §2.5): condition the Phase-3 **LSTM** on the Phase-4 "
-             "**HMM regime** signal and test whether it improves daily realized-variance "
-             "forecasts on the same leakage-free anchored walk-forward as Phases 2–3 "
-             "(**RQ2**). The regime signal is the **causal filtered** posterior "
-             "P(sₜ|x₁..xₜ) from Phase 4 (`hmm_filt_p*`); it is lagged one day so a forecast "
+    p.append(f"Roadmap Phase 5 (Ch2 §2.5): condition the Phase-3 **LSTM** on the Phase-4 "
+             f"regime signal from the {estimator} and test whether it improves daily "
+             "realized-variance forecasts on the same leakage-free anchored walk-forward as "
+             "Phases 2–3 (**RQ2**). The signal is the **causal filtered** posterior "
+             f"P(sₜ|x₁..xₜ) from Phase 4 ({cols_txt}); it is lagged one day so a forecast "
              "for RVₜ only ever conditions on the regime known at t−1. Hyperparameters are "
              "fixed at the Phase-3 selection (hidden 128, lookback 10, lr 1e-3), so "
              "'LSTM → Regime-LSTM' isolates regime-conditioning rather than a new sweep.\n")
@@ -361,28 +376,62 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  "random-walk floor are excluded outright.")
     p.append(line + "\n")
 
-    crow = per[per["regime"] == labels[-1]]
-    if len(crow) and reg_cols and base_cols:
-        crow = crow.iloc[0]
-        br = min(reg_cols, key=lambda c: crow[c]); bb = min(base_cols, key=lambda c: crow[c])
-        impr = 100.0 * (crow[bb] - crow[br]) / crow[bb]
-        crow0 = per[per["regime"] == labels[0]].iloc[0]
-        p.append(f"**The regime signal's value is concentrated in the hard regimes — exactly the RQ2 "
-                 f"hypothesis.** In the **{labels[-1]}** state (n={int(crow['n'])}, COVID-19-dominated) "
-                 f"every regime-aware model beats every baseline, led by **{br}** (QLIKE {crow[br]:.4f}) "
-                 f"vs the best baseline {bb} ({crow[bb]:.4f}) — a **{impr:.0f}% lower** crisis QLIKE. In "
-                 f"the **{labels[0]}** state (n={int(crow0['n'])}), which dominates the pooled mean, the "
-                 f"regime signal adds little (best regime {min(crow0[c] for c in reg_cols):.4f} vs best "
-                 f"baseline {min(crow0[c] for c in base_cols):.4f}). The pooled average therefore "
-                 "*understates* the regime contribution; the per-regime table is where RQ2 is properly "
-                 "adjudicated.\n")
+    # Per-regime narrative, derived from the table rather than asserted. An earlier
+    # version hardcoded "the regime signal's value is concentrated in the hard
+    # regimes"; when the regime estimator changed, the numbers reversed and the
+    # prose did not. Every claim below is now computed, including its direction.
+    if reg_cols and base_cols and len(per):
+        wins = []          # states where the best regime model beats every baseline
+        losses = []        # states where it does not
+        detail = []
+        for lab in labels:
+            row = per[per["regime"] == lab]
+            if not len(row):
+                continue
+            row = row.iloc[0]
+            br = min(reg_cols, key=lambda c: row[c])
+            bb = min(base_cols, key=lambda c: row[c])
+            gap = 100.0 * (row[bb] - row[br]) / row[bb]   # >0 => regime model better
+            (wins if gap > 0 else losses).append(lab)
+            detail.append(
+                f"**{lab}** (n={int(row['n'])}): best regime model {br} {row[br]:.4f} vs best "
+                f"baseline {bb} {row[bb]:.4f} — {abs(gap):.1f}% "
+                f"{'lower' if gap > 0 else 'higher'}")
+        if wins and not losses:
+            head = ("**The regime-aware models lead in every state.** ")
+        elif wins:
+            head = (f"**The regime signal helps in some states and not others** — it leads in "
+                    f"{', '.join(wins)} and trails the best baseline in {', '.join(losses)}. ")
+        else:
+            head = ("**No regime-aware model beats the best baseline in any state on this "
+                    "partition.** ")
+        p.append(head + "; ".join(detail) + ".\n")
+        p.append("Two cautions belong with this table rather than after it. First, it is a "
+                 "*descriptive* split: a day is bucketed by the regime that was active on that "
+                 "day, and the pooled DM tests above are the only significance evidence here — "
+                 "run `python -m src.experiments.report_gw` for the Giacomini–White conditional "
+                 "test, which is the properly sized way to ask whether the loss difference is "
+                 "regime-dependent. Second, the crisis bucket is the smallest and therefore the "
+                 "least stable: with ~9% of the window it takes only a handful of relabelled "
+                 "turning-point days to move its mean substantially, so a crisis-state ranking "
+                 "should be checked against the alternative regime estimator before it is "
+                 "reported as a finding.\n")
 
-    p.append("The two architectures capture the signal differently: **Regime-LSTM-B** (mixture-of-"
-             "experts) wins overall and in the transitional state, while **Regime-LSTM-A** (regime as "
-             "feature) is strongest in the crisis state. The MoE trains one LSTM per regime, so the "
-             "crisis expert's *effective* sample is small (crisis ≈ 8% of days), which caps its "
-             "specialisation — a limitation worth stating rather than hiding, and a reason the feature "
-             "approach can lead precisely in the crisis rows.\n")
+    # Architecture contrast, also computed.
+    if reg_cols and len(per):
+        best_overall = m.index[0]
+        arch_bits = []
+        for lab in labels:
+            row = per[per["regime"] == lab]
+            if len(row):
+                arch_bits.append(f"{lab}: **{min(reg_cols, key=lambda c: row.iloc[0][c])}**")
+        p.append(f"Which architecture leads varies by state ({'; '.join(arch_bits)}), and the best "
+                 f"pooled model overall is **{best_overall}**"
+                 f"{' — a regime-aware model' if best_overall in reg_cols else ', which is *not* regime-aware'}"
+                 ". The mixture-of-experts (Regime-LSTM-B) trains one LSTM per regime, so the crisis "
+                 "expert's *effective* sample is small (crisis ≈ 9% of days), which caps its "
+                 "specialisation — a limitation worth stating rather than hiding, and a reason the "
+                 "feature approach can lead in the crisis rows.\n")
 
     p.append("## Gate criteria\n")
     p.append("- [x] Approach A (regime-as-feature) and Approach B (regime-expert MoE) built, "
@@ -434,6 +483,21 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
 
     # --- merge with the Phase-2/3 baselines (same target/window) ---
     base = from_parquet(repo_path(profile.baseline_predictions)).copy()
+
+    # Drop models that are not information-set comparable with the rest of the
+    # board before anything is scored. LSTM-VIX is the case this exists for: it
+    # consumes option-implied information (the VIX) that no other model here can
+    # see, so including it would (a) compare models with unequal information sets
+    # — the exact confound the RV-only control was built to avoid — and (b) drag
+    # the Model Confidence Set toward a model whose advantage is informational
+    # rather than architectural, eliminating rivals for the wrong reason. It is
+    # reported as an auxiliary-feature ablation in Phase 3 (m03, Ch1 §1.8).
+    excluded = list(cfg.get("comparison", {}).get("exclude_models", []) or [])
+    drop = [c for c in excluded if c in base.columns]
+    if drop:
+        log.info("excluded from the Phase-5 comparison (unequal information set): %s", drop)
+        base = base.drop(columns=drop)
+
     for mm in models:
         base[mm.name] = reg_preds[mm.name].reindex(base.index)
     combined = base.dropna(subset=[mm.name for mm in models]).copy()
@@ -494,7 +558,9 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     return {"name": name, "metrics": metrics, "per_regime": per,
             "per_regime_models": per_regime_models, "dm": dm, "mcs": mcs, "labels": labels,
             "n_oos": int(len(combined)), "fast": bool(args.fast), "pred_path": pred_path,
-            "models": [mm.name for mm in models]}
+            "models": [mm.name for mm in models],
+            # Which Phase-4 signal was consumed, so the milestone can name it.
+            "regime_cols": list(cfg.regime.posterior_cols)}
 
 
 # --------------------------------------------------------------------------- #
@@ -517,9 +583,13 @@ def main(argv: list[str] | None = None) -> int:
                         f"run_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     snapshot_config(cfg, run_dir)
 
+    # Milestone filename is config-driven so a robustness variant (e.g. the
+    # Baum-Welch-conditioned run in configs/regime_lstm_hmm.yaml) cannot overwrite
+    # the headline note. Defaults to the headline name.
+    milestone_file = str(cfg.paths.get("milestone_file") or "m05_regime_dl.md")
     for profile in cfg.profiles:
         ctx = run_profile(data_cfg, cfg, profile, args)
-        write_milestone(ctx, repo_path(cfg.paths.milestones, "m05_regime_dl.md"))
+        write_milestone(ctx, repo_path(cfg.paths.milestones, milestone_file))
     log.info("Phase 5 complete.")
     return 0
 
