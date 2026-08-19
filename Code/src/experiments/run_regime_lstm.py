@@ -416,19 +416,43 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
         p.append("")
 
     # ---- findings (data-driven: significance- and regime-aware) ----
-    reg_helps = q(best_reg) < q("LSTM")
     sig = dm[dm["p_value"] < 0.05]
     base_cols = [c for c in ["HAR-RV", "LSTM", "LSTM-RVonly"] if c in ctx["per_regime_models"]]
     reg_cols = [c for c in ["Regime-LSTM-A", "Regime-LSTM-B", "Regime-LSTM-A-RVonly"]
                 if c in ctx["per_regime_models"]]
+    # The effect of regime conditioning is only readable against the SAME feature
+    # set. Comparing the best regime model to whichever regime-agnostic model one
+    # likes mixes the treatment with the input set: on this board the RV-only pair
+    # and the full-feature pair point in OPPOSITE directions, so an unmatched
+    # comparison can report either sign at will.
+    MATCHED = [("Regime-LSTM-A", "LSTM"),
+               ("Regime-LSTM-A-RVonly", "LSTM-RVonly"),
+               ("Regime-LSTM-B", "LSTM")]
+    matched = [(a, b) for a, b in MATCHED
+               if a in ctx["per_regime_models"] and b in ctx["per_regime_models"]]
     p.append("## Findings (RQ2)\n")
     p.append(f"The overall best model on the board is **{best}** (QLIKE **{q(best):.4f}**), ahead of "
-             f"the regime-agnostic LSTM {q('LSTM'):.4f} and HAR-RV {q('HAR-RV'):.4f}. "
-             + ("Adding the regime signal **lowers** pooled QLIKE relative to the regime-agnostic "
-                f"LSTM ({q(best_reg):.4f} vs {q('LSTM'):.4f})."
-                if reg_helps else
-                "On the pooled window the regime signal does not lower QLIKE relative to the "
-                f"regime-agnostic LSTM ({q(best_reg):.4f} vs {q('LSTM'):.4f}).") + "\n")
+             f"the regime-agnostic LSTM {q('LSTM'):.4f} and HAR-RV {q('HAR-RV'):.4f}.\n")
+    if matched:
+        helped = [(a, b) for a, b in matched if q(a) < q(b)]
+        hurt = [(a, b) for a, b in matched if q(a) >= q(b)]
+        bits = "; ".join(f"{a} {q(a):.4f} vs {b} {q(b):.4f} "
+                         f"({'−' if q(a) < q(b) else '+'}{abs(q(a) - q(b)):.4f})"
+                         for a, b in matched)
+        if helped and hurt:
+            verdict = (f"**Regime conditioning does not have a consistent pooled sign.** Compared "
+                       f"only against its own regime-agnostic twin — the same features, the same "
+                       f"hyperparameters, the regime posterior added — it helps in "
+                       f"{len(helped)} of {len(matched)} matched pairs and hurts in {len(hurt)}: ")
+        elif helped:
+            verdict = ("**Regime conditioning lowers pooled QLIKE in every matched pair** (same "
+                       "features, same hyperparameters, regime posterior added): ")
+        else:
+            verdict = ("**Regime conditioning does not lower pooled QLIKE in any matched pair** "
+                       "(same features, same hyperparameters, regime posterior added): ")
+        p.append(verdict + bits + ". None of these gaps is significant (see the DM table above); "
+                 "note in particular that the best pooled model on the board carries **no** regime "
+                 "signal.\n")
 
     if len(sig):
         sig_txt = "; ".join(
@@ -456,9 +480,46 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     # regimes"; when the regime estimator changed, the numbers reversed and the
     # prose did not. Every claim below is now computed, including its direction.
     if reg_cols and base_cols and len(per):
-        wins = []          # states where the best regime model beats every baseline
-        losses = []        # states where it does not
-        detail = []
+        # Per state, read the MATCHED pairs -- same reason as the pooled paragraph.
+        wins, losses, detail, gaps_pct = [], [], [], []
+        for lab in labels:
+            row = per[per["regime"] == lab]
+            if not len(row):
+                continue
+            row = row.iloc[0]
+            n_better = sum(1 for a, b in matched if row[a] < row[b])
+            (wins if n_better > len(matched) / 2 else losses).append(lab)
+            gaps_pct.extend(100.0 * (row[a] - row[b]) / row[b] for a, b in matched)
+            pair_txt = ", ".join(
+                f"{a} {row[a]:.4f} vs {b} {row[b]:.4f} "
+                f"({100.0 * (row[a] - row[b]) / row[b]:+.1f}%)" for a, b in matched)
+            detail.append(f"**{lab}** (n={int(row['n'])}): {n_better}/{len(matched)} matched pairs "
+                          f"favour the regime model — {pair_txt}")
+        if wins and not losses:
+            head = ("**A majority of matched pairs favours regime conditioning in every state** "
+                    "— on margins this small, read that as 'no clear harm', not as a win. ")
+        elif wins:
+            head = (f"**Regime conditioning helps in some states and not others** — a majority of "
+                    f"matched pairs favours it in {', '.join(wins)} and not in "
+                    f"{', '.join(losses)}. ")
+        else:
+            head = "**No state shows a majority of matched pairs favouring regime conditioning.** "
+        p.append(head + "; ".join(detail) + ".\n")
+        # per-state rows only -- the table also carries an "all" row (the full window).
+        _ns = per[per["regime"].isin(labels)]["n"]
+        if gaps_pct and len(_ns):
+            p.append(f"Every one of those matched gaps lies between {min(map(abs, gaps_pct)):.1f}% "
+                     f"and {max(map(abs, gaps_pct)):.1f}% of the baseline's QLIKE, on buckets of "
+                     f"{int(_ns.min())}–{int(_ns.max())} days, with **no significance "
+                     "test attached** — the direction of a majority vote across three pairs is "
+                     "not evidence of an effect at these magnitudes. The Giacomini–White test "
+                     "referenced below is what settles it, and it localises the only surviving "
+                     "effect in the transitional state.\n")
+
+        # The best-of-N framing is retained because readers expect it, but it is a
+        # SELECTION statistic (min over 3 regime models vs min over 3 baselines,
+        # per bucket) and reads far stronger than the evidence supports. Label it.
+        sel_bits = []
         for lab in labels:
             row = per[per["regime"] == lab]
             if not len(row):
@@ -466,32 +527,31 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
             row = row.iloc[0]
             br = min(reg_cols, key=lambda c: row[c])
             bb = min(base_cols, key=lambda c: row[c])
-            gap = 100.0 * (row[bb] - row[br]) / row[bb]   # >0 => regime model better
-            (wins if gap > 0 else losses).append(lab)
-            detail.append(
-                f"**{lab}** (n={int(row['n'])}): best regime model {br} {row[br]:.4f} vs best "
-                f"baseline {bb} {row[bb]:.4f} — {abs(gap):.1f}% "
-                f"{'lower' if gap > 0 else 'higher'}")
-        if wins and not losses:
-            head = ("**The regime-aware models lead in every state.** ")
-        elif wins:
-            head = (f"**The regime signal helps in some states and not others** — it leads in "
-                    f"{', '.join(wins)} and trails the best baseline in {', '.join(losses)}. ")
-        else:
-            head = ("**No regime-aware model beats the best baseline in any state on this "
-                    "partition.** ")
-        p.append(head + "; ".join(detail) + ".\n")
+            gap = 100.0 * (row[bb] - row[br]) / row[bb]
+            sel_bits.append(f"{lab} {br} {row[br]:.4f} vs {bb} {row[bb]:.4f} "
+                            f"({abs(gap):.1f}% {'lower' if gap > 0 else 'higher'})")
+        p.append("For reference, the best-of-each-family comparison — lowest of "
+                 f"{len(reg_cols)} regime models against lowest of {len(base_cols)} baselines "
+                 "within each bucket — reads: " + "; ".join(sel_bits) + ". **Treat that line as "
+                 "descriptive only.** Taking a minimum over several models inside a bucket is a "
+                 "selection statistic with no error bar attached; it will show a margin in favour "
+                 "of whichever family has more entries even when every individual contrast is "
+                 "noise, and which architecture supplies the minimum changes from state to "
+                 "state.\n")
         p.append("Two cautions belong with this table rather than after it. First, the split "
                  "is still *descriptive*: it reports point estimates per bucket, and the "
                  "pooled DM tests above are the only significance evidence attached to it — "
                  "run `python -m src.experiments.report_gw` for the Giacomini–White "
-                 "conditional test, which uses the same t−1 indicators and is the properly "
-                 "sized way to ask whether the loss difference is regime-dependent. Second, "
-                 "the crisis bucket is the smallest and therefore the least stable: with ~9% "
-                 "of the window it takes only a handful of relabelled turning-point days to "
-                 "move its mean substantially, so a crisis-state ranking should be checked "
-                 "against the alternative regime estimator (`configs/regime_lstm_hmm.yaml`) "
-                 "before it is reported as a finding.\n")
+                 "conditional test and the per-regime DM columns, which use the same t−1 "
+                 "indicators and are the properly sized way to ask whether the loss difference "
+                 "is regime-dependent. On the current board only the **transitional** state "
+                 "survives that test; the calm and crisis contrasts do not, and the crisis "
+                 "claim has been formally retracted in `ROADMAP.md` — do not reintroduce it "
+                 "from this table. Second, the crisis bucket is the smallest and therefore the "
+                 "least stable: with ~9% of the window it takes only a handful of relabelled "
+                 "turning-point days to move its mean substantially, so a crisis-state ranking "
+                 "should be checked against the alternative regime estimator "
+                 "(`configs/regime_lstm_hmm.yaml`) before it is reported as a finding.\n")
 
     # Architecture contrast, also computed.
     if reg_cols and len(per):
@@ -636,7 +696,12 @@ def _evaluate_profile(cfg, name, combined, model_names, reg_state, labels, pred_
     per = per_regime_qlike(combined, reg_state, labels, per_regime_models,
                            shift=DEFAULT_REGIME_SHIFT)
     per_expost = per_regime_qlike(combined, reg_state, labels, per_regime_models, shift=0)
-    trans = transition_day_summary(reg_state, combined.index, shift=DEFAULT_REGIME_SHIFT)
+    # selector_shift=0 on purpose: here the object of interest really is the set of
+    # days whose *bucket* differs between the two label timings, which is exactly
+    # 1{s_t != s_(t-1)}. It is used only to size the convention gap, never to split
+    # a performance metric -- that would be selection on the outcome (see
+    # src.evaluation.regime_timing, "The same rule governs the selector").
+    trans = transition_day_summary(reg_state, combined.index, selector_shift=0)
     log.info("PROFILE %s per-regime QLIKE [%s]:\n%s", name,
              regime_timing_label(DEFAULT_REGIME_SHIFT), per.round(4).to_string(index=False))
     log.info("PROFILE %s per-regime QLIKE [%s]:\n%s", name, regime_timing_label(0),

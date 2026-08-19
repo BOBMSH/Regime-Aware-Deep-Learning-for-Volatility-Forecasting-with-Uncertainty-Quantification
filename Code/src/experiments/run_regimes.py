@@ -434,20 +434,28 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         sens_grid = cfg.get("jump_penalty_sensitivity_grid")
         if sens_grid is not None:
             rows = []
-            for lam in [float(x) for x in sens_grid]:
+            # NB the loop variable is `lam_s`, NOT `lam`. Until 2026-08-19 (iii) it
+            # was `lam`, which shadowed the full-sample selected penalty for the rest
+            # of the function: after the loop `lam` held the last grid value (300),
+            # and that wrong value was written to the agreement table, printed in the
+            # milestone as "the headline map uses lambda=300" and burned into the
+            # jump regime-map figure caption. The fitted models were never affected
+            # (they are built above, before this loop), but three reported artefacts
+            # were. Keep the two names distinct.
+            for lam_s in [float(x) for x in sens_grid]:
                 try:
                     m_ = JumpPenalisedHMM(
-                        K, jump_penalty=lam, covariance_type=cfg.models.hmm.covariance_type,
+                        K, jump_penalty=lam_s, covariance_type=cfg.models.hmm.covariance_type,
                         n_init=int(cfg.models.jump.n_init),
                         max_iter=int(cfg.models.jump.max_iter), seed=seed,
                     ).fit(Xz_causal[train_mask])
                 except Exception as exc:  # noqa: BLE001 - a degenerate lambda must not kill the run
-                    log.warning("lambda sensitivity: lambda=%.2f failed (%s); skipped", lam, exc)
+                    log.warning("lambda sensitivity: lambda=%.2f failed (%s); skipped", lam_s, exc)
                     continue
                 s_ = m_.filtered_proba(Xz_causal).argmax(axis=1)
                 head = jp_filt_all.argmax(axis=1)
                 rows.append({
-                    "jump_penalty": lam,
+                    "jump_penalty": lam_s,
                     "train_jumps": int(m_.n_jumps_),
                     "train_mean_duration_days": float(
                         len(m_.jump_path_) / max(m_.n_jumps_ + 1, 1)),
@@ -457,7 +465,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                     "test_switches": int(np.count_nonzero(np.diff(s_[test_mask]))),
                     "agreement_with_headline_test": float((s_[test_mask] == head[test_mask]).mean()),
                     "agreement_with_headline_train": float((s_[train_mask] == head[train_mask]).mean()),
-                    "is_headline": bool(abs(lam - lam_causal) < 1e-9),
+                    "is_headline": bool(abs(lam_s - lam_causal) < 1e-9),
                 })
             lam_sens = pd.DataFrame(rows)
             log.info("lambda sensitivity (training-only fits, causal paths):\n%s",
@@ -530,7 +538,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                     f"S&P 500 realized volatility by HMM regime (K={K}) — {name}",
                     figdir / f"{name}_regime_map_hmm.png")
     plot_regime_map(feats.index, frame["rv"].to_numpy(), jump_path, K,
-                    f"S&P 500 realized volatility by jump-model regime (K={K}, λ={lam:.0f}) — {name}",
+                    f"S&P 500 realized volatility by jump-model regime (K={K}, λ={lam:.4g}) — {name}",
                     figdir / f"{name}_regime_map_jump.png")
     plot_bic(bic_tbl, figdir / f"{name}_bic.png")
     plot_transition(hmm.transmat_, K, figdir / f"{name}_transition.png")
@@ -546,7 +554,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         plot_regime_map(feats.index[tm], frame["rv"].to_numpy()[tm],
                         causal["jp_filt_all"][tm].argmax(axis=1), K,
                         f"Test-window RV by causal jump-penalised-HMM regime "
-                        f"(K={K}, λ={causal['lam_causal']:.0f}) — {name}",
+                        f"(K={K}, λ={causal['lam_causal']:.4g}) — {name}",
                         figdir / f"{name}_regime_map_jphmm_causal.png")
 
     return {
@@ -608,6 +616,11 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append(f"![Jump regime map](../figures/m04/{name}_regime_map_jump.png)\n")
 
     p.append("## Persistence\n")
+    p.append("Transition matrix and state durations of the **Baum–Welch HMM** fitted on the full "
+             "sample — the descriptive map above, not the causal conditioning signal. The "
+             "jump-penalised chain that Phases 5–7 actually consume is more persistent; its "
+             "durations are in the causal-signal table further down. Stated explicitly because "
+             "the two are easy to confuse and only one of them is a result.\n")
     p.append("| state | label | stay prob | expected duration (days) | stationary | freq | mean run (days) |")
     p.append("|---|---|---|---|---|---|---|")
     for _, r in pers.iterrows():
@@ -615,9 +628,12 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  f"{r['expected_duration_days']:.1f} | {r['stationary_prob']:.3f} | "
                  f"{r['empirical_freq']:.3f} | {r['mean_run_length_days']:.1f} |")
     p.append(f"\n![transition matrix](../figures/m04/{name}_transition.png)\n")
-    p.append("The jump penalty λ is **tuned, not fixed** (Ch2 §2.4; Nystrup 2020): "
-             f"the headline map uses λ=**{ctx['lam']:.0f}** — the smallest penalty on the sweep "
-             "meeting the persistence floor. Full λ sensitivity is in "
+    p.append("The jump penalty λ is **tuned, not fixed** (Ch2 §2.4; Nystrup 2020): the "
+             f"**descriptive full-sample** jump map above uses λ=**{ctx['lam']:.4g}** — the "
+             "smallest penalty on the pre-registered grid whose mean regime duration clears the "
+             "persistence floor. The λ that matters for every downstream phase is the "
+             "**training-only** one selected in the causal section below; both are reported "
+             "because only the second is leakage-free. Full λ sensitivity is in "
              f"`results/tables/m04_regimes_{name}_jump_lambda.csv`.\n")
 
     p.append("## External validation — VIX by regime\n")
@@ -666,7 +682,7 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  "instead would not do: it is a softmax over the emission loss alone and ignores "
                  "the jump penalty, i.e. exactly the persistence the chapter argues for.\n")
         p.append(f"The penalty is **re-selected on the training rows only** "
-                 f"(λ = **{c['lam_causal']:.0f}**, smallest λ on the pre-registered grid whose "
+                 f"(λ = **{c['lam_causal']:.4g}**, smallest λ on the pre-registered grid whose "
                  "mean regime duration clears the persistence floor); the full-sample λ reported "
                  "above is descriptive and would leak into the forecast if reused here (roadmap "
                  "Phase 4: *the regularisation parameter is also CV-selected on training-only "
@@ -730,7 +746,7 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                 "|---|---|---|---|---|---|---|",
             ]
             for _, r in cs.iterrows():
-                lam_txt = "—" if not np.isfinite(r["lambda"]) else f"{r['lambda']:.0f}"
+                lam_txt = "—" if not np.isfinite(r["lambda"]) else f"{r['lambda']:.4g}"
                 days = "/".join(str(int(r[f"test_days_state{k}"])) for k in range(K))
                 lines.append(
                     f"| {r['signal']} | {lam_txt} | {int(r['test_switches'])} | "

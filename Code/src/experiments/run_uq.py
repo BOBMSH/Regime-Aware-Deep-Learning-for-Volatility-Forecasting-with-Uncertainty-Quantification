@@ -61,6 +61,7 @@ from src.evaluation.calibration import (
 from src.evaluation.metrics import crps_from_quantiles, crps_lognormal, qlike
 from src.evaluation.regime_timing import (
     DEFAULT_REGIME_SHIFT,
+    DEFAULT_SELECTOR_SHIFT,
     align_regime_label,
     regime_timing_label,
     transition_day_summary,
@@ -336,20 +337,32 @@ def per_regime_table(preds, labels, level, method, *,
 
 
 def transition_vs_stable_table(preds, level, methods, reg_state, *,
-                               shift: int = DEFAULT_REGIME_SHIFT) -> pd.DataFrame:
-    """Coverage on regime-*transition* days vs everything else.
+                               selector_shift: int = DEFAULT_SELECTOR_SHIFT) -> pd.DataFrame:
+    """Coverage on regime-*transition* days vs everything else, at one selector timing.
 
-    This is the robust version of the Phase-6 per-regime claim. The per-regime
-    split's apparent crisis degradation is an artefact of which bucket the
-    transition days fall in; the transition/stable split reports the effect
-    directly, is invariant to that convention, and is the sharper statement for a
-    risk manager — intervals fail when the state changes, not when the state is
-    merely severe.
+    ``selector_shift`` decides what the table means, and the two readings are
+    opposite, so every row is stamped with it:
+
+    * ``1`` (**default, headline**) — ``1{s_(t-1) != s_(t-2)}``. Both labels lie in
+      the ``t-1`` information set, so this is the only version that answers *"can a
+      forecaster tell in advance when these intervals will fail?"*. On this test
+      window the answer is no: coverage on flagged days is indistinguishable from
+      the rest.
+    * ``0`` — ``1{s_t != s_(t-1)}``, the split reported before 2026-08-19 (iii). It
+      is convention-*free* (both label timings agree on which days those are) but
+      **not** implementable: ``s_t`` is inferred from the day-t return, and whether
+      the day-t interval covered is a function of that same return, so the
+      subsample is chosen using the outcome being measured. It shows a
+      16-percentage-point coverage gap that vanishes entirely at ``selector_shift=1``.
+      Kept as a descriptive contrast — never as a conditional claim, and never as
+      the subsample for a coverage test.
+
+    See :mod:`src.evaluation.regime_timing` for the measurement and the mechanism.
     """
     tag = f"{int(round(level * 100))}"
-    tr = transition_day_summary(reg_state, preds.index, shift=shift)
+    tr = transition_day_summary(reg_state, preds.index, selector_shift=selector_shift)
     mask = tr["mask"].reindex(preds.index).fillna(False).to_numpy()
-    scored = align_regime_label(reg_state, preds.index, shift=shift).notna().to_numpy()
+    scored = tr["scored"].reindex(preds.index).fillna(False).to_numpy()
     rows = []
     for method in methods:
         lo, hi = preds[f"{method}_lo{tag}"], preds[f"{method}_hi{tag}"]
@@ -358,7 +371,12 @@ def transition_vs_stable_table(preds, level, methods, reg_state, *,
             if not sel.any():
                 continue
             m = interval_metrics(preds[ACTUAL_COL][sel], lo[sel], hi[sel], level=level)
-            rows.append({"method": method, "days": group, **m})
+            rows.append({
+                "selector_shift": int(selector_shift),
+                "selector": tr["selector"],
+                "implementable": bool(tr["implementable"]),
+                "method": method, "days": group, **m,
+            })
     return pd.DataFrame(rows)
 
 
@@ -660,20 +678,76 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
         p.append("\n</details>\n")
 
     tt = ctx.get("transition_table"); tr = ctx.get("transition")
+    tt_ex = ctx.get("transition_table_expost"); tr_ex = ctx.get("transition_expost")
+
+    def _tbl(t):
+        rows = ["\n| method | days | n | PICP | MPIW | Winkler | coverage error |",
+                "|---|---|---|---|---|---|---|"]
+        for _, r in t.iterrows():
+            rows.append(f"| {r['method']} | {r['days']} | {int(r['n'])} | {r['picp']:.3f} | "
+                        f"{r['mpiw']:.3e} | {r['winkler']:.3e} | {r['coverage_error']:+.3f} |")
+        return "\n".join(rows) + "\n"
+
+    def _gap(t, method):
+        """(PICP flagged, PICP rest, flagged − rest). Negative = worse on flagged days."""
+        a = t[(t["method"] == method) & (t["days"] == "regime transition")]
+        b = t[(t["method"] == method) & (t["days"] == "stable regime")]
+        if not len(a) or not len(b):
+            return float("nan"), float("nan"), float("nan")
+        pa, pb = float(a["picp"].iloc[0]), float(b["picp"].iloc[0])
+        return pa, pb, pa - pb
+
     if tt is not None and len(tt):
-        p.append(f"\n### Where the intervals actually fail: regime transitions\n")
-        if tr:
-            p.append(f"The two tables above differ on **{tr['n_transition']} of {tr['n']} days "
-                     f"({100 * tr['share']:.1f}%)** — the regime-*transition* days, whose bucket "
-                     "the convention alone decides. Splitting on that directly is convention-free "
-                     "and is the sharper statement: intervals fail when the state **changes**, not "
-                     "when the state is merely severe.\n")
-        p.append("\n| method | days | n | PICP | MPIW | Winkler | coverage error |")
-        p.append("|---|---|---|---|---|---|---|")
-        for _, r in tt.iterrows():
-            p.append(f"| {r['method']} | {r['days']} | {int(r['n'])} | {r['picp']:.3f} | "
-                     f"{r['mpiw']:.3e} | {r['winkler']:.3e} | {r['coverage_error']:+.3f} |")
-        p.append("")
+        p.append("\n### Can the failures be seen coming? The transition split, done two ways\n")
+        p.append("Prediction intervals are only useful if their failures are *anticipable*, so the "
+                 "question is not where the misses landed but whether anything knowable at t−1 "
+                 "flags them. That makes the timing of the **selector** as consequential as the "
+                 "timing of the bucket label above, and for the same reason.\n")
+
+        p.append(f"\n**Headline — ex-ante selector `1{{s(t−1) ≠ s(t−2)}}`.** Both labels are known "
+                 f"at t−1, so this is the only version that supports a conditional claim, a "
+                 f"coverage test, or a recalibration rule. It flags "
+                 f"**{tr['n_transition']} of {tr['n']} days ({100 * tr['share']:.1f}%)**.\n")
+        p.append(_tbl(tt))
+        mc_a, mc_b, mc_g = _gap(tt, MC_NAME)
+        q_a, q_b, q_g = _gap(tt, Q_NAME)
+        _MATERIAL_GAP = 0.05
+        if max(abs(mc_g), abs(q_g)) >= _MATERIAL_GAP:
+            p.append(f"\nOn the implementable selector the two groups **do** separate: MC-Dropout "
+                     f"{mc_a * 100:.1f}% on flagged days vs {mc_b * 100:.1f}% on the rest "
+                     f"({mc_g * 100:+.1f} pp), quantile {q_a * 100:.1f}% vs {q_b * 100:.1f}% "
+                     f"({q_g * 100:+.1f} pp); the sign is flagged minus rest, so negative means "
+                     "worse when a change was visible. Attach a formal coverage test in Phase 7 "
+                     "before citing it.\n")
+        else:
+            p.append(f"\n**There is no separation.** MC-Dropout covers {mc_a * 100:.1f}% on flagged "
+                     f"days versus {mc_b * 100:.1f}% on the rest ({mc_g * 100:+.1f} pp, flagged "
+                     f"minus rest); the quantile head {q_a * 100:.1f}% versus {q_b * 100:.1f}% "
+                     f"({q_g * 100:+.1f} pp). Knowing that the regime changed *yesterday* tells a "
+                     "forecaster nothing about whether today's interval will hold.\n")
+
+    if tt_ex is not None and len(tt_ex):
+        p.append("\n<details><summary><b>Ex-post selector <code>1{s(t) ≠ s(t−1)}</code> — "
+                 "descriptive only, do not cite as a conditional result</b></summary>\n")
+        if tr_ex:
+            p.append(f"\nThese are also exactly the **{tr_ex['n_transition']} of {tr_ex['n']} days "
+                     f"({100 * tr_ex['share']:.1f}%)** on which the two per-regime tables above "
+                     "disagree — the days whose bucket the labelling convention alone decides. "
+                     "Splitting coverage on them is convention-*free*, which is why an earlier "
+                     "version of this note reported it as the robust RQ3 finding. It is not: "
+                     "s(t) is inferred from the day-t return, and whether the day-t interval "
+                     "covered is a function of that same return, so the subsample is selected on "
+                     "the outcome being measured. A regime transition is *detected by* the very "
+                     "surprise that breaks the interval — realized variance on these days runs "
+                     "about twice the median of stable days.\n")
+        p.append(_tbl(tt_ex))
+        ex_mc_a, ex_mc_b, ex_mc_g = _gap(tt_ex, MC_NAME)
+        p.append(f"\nThe gap here is {ex_mc_g * 100:+.1f} pp for MC-Dropout "
+                 f"({ex_mc_a * 100:.1f}% vs {ex_mc_b * 100:.1f}%) against "
+                 f"{mc_g * 100:+.1f} pp on the ex-ante selector above — the same rule, the same "
+                 "number of flagged days, one day of hindsight apart. The difference between the "
+                 "two tables is the finding; neither number alone is.\n")
+        p.append("\n</details>\n")
     p.append(f"\n![interval band](../figures/m06/{name}_interval_band.png)\n")
 
     # ---- findings ----
@@ -744,36 +818,72 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  "bucket. This is a **correction to the earlier Phase-6 claim** of a monotone "
                  "degradation, which was computed on the contemporaneous label; that ordering is "
                  "produced by the bucketing convention, not by the intervals (the ex-post table "
-                 "above still shows it, and the transition split explains it).\n")
+                 "above still shows it, and the transition split below explains the mechanism).\n")
     tt2 = ctx.get("transition_table")
+    tt2_ex = ctx.get("transition_table_expost")
     if tt2 is not None and len(tt2):
-        def _pick(method, days):
-            r = tt2[(tt2["method"] == method) & (tt2["days"] == days)]
+        def _pick(t, method, days):
+            r = t[(t["method"] == method) & (t["days"] == days)]
             return float(r["picp"].iloc[0]) if len(r) else float("nan")
-        p.append("**Where the intervals genuinely fail is regime *transitions*, not regime "
-                 "*severity*.** At the same nominal level, MC-Dropout covers "
-                 f"{_pick(MC_NAME, 'regime transition')*100:.1f}% on days when the state changed "
-                 f"versus {_pick(MC_NAME, 'stable regime')*100:.1f}% on stable days, and the "
-                 f"quantile head {_pick(Q_NAME, 'regime transition')*100:.1f}% versus "
-                 f"{_pick(Q_NAME, 'stable regime')*100:.1f}%. That contrast is invariant to the "
-                 "bucketing convention — it is defined by a state *change*, which both timings "
-                 "agree on — and it is the substantive RQ3 result: the intervals are not badly "
-                 "calibrated in stressed markets per se, they are badly calibrated at the moment "
-                 "the market changes state, which is exactly when a risk manager relies on "
-                 "them.\n")
+        a_mc = _pick(tt2, MC_NAME, "regime transition")
+        b_mc = _pick(tt2, MC_NAME, "stable regime")
+        a_q = _pick(tt2, Q_NAME, "regime transition")
+        b_q = _pick(tt2, Q_NAME, "stable regime")
+        p.append("**Nor do they fail predictably at regime *transitions*.** On the ex-ante "
+                 "selector — the state change a forecaster could actually have seen, "
+                 f"`1{{s(t−1) ≠ s(t−2)}}` — MC-Dropout covers {a_mc*100:.1f}% on flagged days "
+                 f"versus {b_mc*100:.1f}% on the rest, and the quantile head {a_q*100:.1f}% "
+                 f"versus {b_q*100:.1f}%: no separation in either direction.\n")
+        if tt2_ex is not None and len(tt2_ex):
+            xa = _pick(tt2_ex, MC_NAME, "regime transition")
+            xb = _pick(tt2_ex, MC_NAME, "stable regime")
+            xaq = _pick(tt2_ex, Q_NAME, "regime transition")
+            xbq = _pick(tt2_ex, Q_NAME, "stable regime")
+            p.append("**This retracts a claim made in an earlier version of this note.** The "
+                     f"ex-post selector `1{{s(t) ≠ s(t−1)}}` gives {xa*100:.1f}% vs {xb*100:.1f}% "
+                     f"(MC-Dropout) and {xaq*100:.1f}% vs {xbq*100:.1f}% (quantile) — a large gap "
+                     "that was reported as the substantive RQ3 result on the grounds that it is "
+                     "invariant to the bucketing convention. Convention-invariance was the wrong "
+                     "test. s(t) is inferred from the day-t return and interval coverage on day t "
+                     "is a function of that same return, so the split is selection on the outcome: "
+                     "the identical error the t−1 bucketing fixed one level up, and one that would "
+                     "manufacture a small p-value for any coverage test run on that subsample. "
+                     "Lagging the selector by a single day removes the effect completely.\n")
+        p.append("**What the two RQ3 results add up to is that the miscalibration is a *level* "
+                 "problem, not a *timing* problem.** The intervals are the wrong width more or "
+                 "less everywhere — not in identifiable states, and not on days that can be "
+                 "flagged in advance. That is a coherent and useful answer for a risk manager: it "
+                 "says the fix is a width correction rather than a state-dependent rule, and it "
+                 "predicts that a global rescaling should work where a conditional one will not. "
+                 "The σ-scale diagnostic above is the direct estimate of that correction, and "
+                 "Phase 7's coverage tests (Kupiec unconditional, Christoffersen conditional, "
+                 "Engle–Manganelli DQ) belong on the **full sample with lagged regressors**, not "
+                 "on any transition subsample.\n")
     p.append("A structural reading explains *why*, and why neither method escapes it. The "
              "MC-Dropout predictive band is near-**homoskedastic on the log scale**: its "
              "aleatoric term is a single global residual variance estimated once on pre-2019 "
              "data and broadcast to every out-of-sample day, and the epistemic term is "
              "negligible (below), so the band is essentially a fixed *multiplicative* factor on "
-             "the point forecast. It can only widen when the point forecast itself rises — which "
-             "is precisely what has *not* happened yet on the day a transition begins. The "
+             "the point forecast. Its *relative* width is therefore fixed: it widens in absolute "
+             "terms only when the point forecast itself rises, and it has no channel at all "
+             "through which to price a particular day as unusually uncertain. The "
              "quantile head can in principle learn a state-dependent width from the pinball "
              "objective, and it does widen, but it too keys off the same lagged inputs and is "
-             "caught by the same one-day surprise. This motivates the Phase-7 combined regime × "
-             "uncertainty model and a conformal or transition-conditional recalibration, and it "
-             "sharpens the design: the informative conditioning variable is the *change* in the "
-             "regime posterior, not its level.\n")
+             "caught by the same one-day surprise. A band that is a fixed multiplicative factor "
+             "on the point forecast is *exactly* the object whose miscalibration is a level "
+             "problem: it can be the wrong width uniformly, but it has no mechanism by which to "
+             "be wrong selectively — which is what the ex-ante transition split measures and "
+             "confirms.\n")
+    p.append("**What this implies for Phase 7,** stated before it is built so the result reads as "
+             "a prediction rather than a rationalisation: the combined regime × uncertainty model "
+             "should be expected to leave calibration roughly unchanged, because the conditioning "
+             "variable it would use is the same lagged regime signal that shows no coverage "
+             "separation here. That is worth running as a **pre-registered null** — a clean "
+             "negative on regime-conditional recalibration, reported alongside a global width "
+             "correction that the σ-scale diagnostic says should work. The alternative reading, "
+             "that a richer conditioning variable would succeed, requires first exhibiting one "
+             "that is measurable at t−1 and correlates with interval failure; none of the "
+             "candidates screened so far does.\n")
 
     p.append(f"**Epistemic vs aleatoric.** Averaged over the test window the MC-Dropout predictive "
              f"std decomposes into an epistemic (model) part {dec['sd_epistemic']:.3f} and an aleatoric "
@@ -798,7 +908,8 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
              "with a reliability diagram across a dense τ grid.\n")
     p.append("- [x] **Per-regime** calibration table (calm / transitional / crisis) for both "
              "methods, bucketed by the regime known at t−1, with the ex-post split reported "
-             "alongside and a convention-free transition/stable contrast — the RQ3 contribution.\n")
+             "alongside; plus a transition/stable contrast at both selector timings, whose "
+             "disagreement is the RQ3 contribution.\n")
     p.append("- [x] Point-accuracy preserved vs the Phase-3 LSTM (QLIKE + formal DM); predictions, "
              "tables, figures and a reproducible config snapshot persisted.\n")
 
@@ -910,8 +1021,20 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                                 reg_state=reg_state, shift=0)
     pr_q_ex = per_regime_table(preds, labels, headline_level, Q_NAME,
                                reg_state=reg_state, shift=0)
-    trans_tbl = transition_vs_stable_table(preds, headline_level, [MC_NAME, Q_NAME], reg_state)
-    trans = transition_day_summary(reg_state, preds.index, shift=DEFAULT_REGIME_SHIFT)
+    # HEADLINE transition split uses the EX-ANTE selector 1{s_(t-1) != s_(t-2)};
+    # the ex-post 1{s_t != s_(t-1)} version is kept beside it because the two
+    # disagree completely and that disagreement is the RQ3 finding. See
+    # transition_vs_stable_table and src.evaluation.regime_timing.
+    trans_tbl = transition_vs_stable_table(
+        preds, headline_level, [MC_NAME, Q_NAME], reg_state,
+        selector_shift=DEFAULT_SELECTOR_SHIFT)
+    trans_tbl_ex = transition_vs_stable_table(
+        preds, headline_level, [MC_NAME, Q_NAME], reg_state, selector_shift=0)
+    trans = transition_day_summary(reg_state, preds.index,
+                                   selector_shift=DEFAULT_SELECTOR_SHIFT)
+    # selector_shift=0 is also exactly the set of days whose per-regime *bucket*
+    # differs between the two label timings -- that is what the note quotes it for.
+    trans_ex = transition_day_summary(reg_state, preds.index, selector_shift=0)
     crps = crps_table(preds, q_quantiles_cfg)
     sigma_diag = sigma_scale_diagnostic(preds, headline_level)
     taus = [float(x) for x in OmegaConf.to_container(cfg.uq.reliability_taus, resolve=True)]
@@ -938,8 +1061,10 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
              regime_timing_label(DEFAULT_REGIME_SHIFT), pr_mc.round(4).to_string(index=False))
     log.info("PROFILE %s per-regime Q  [%s]:\n%s", name,
              regime_timing_label(DEFAULT_REGIME_SHIFT), pr_q.round(4).to_string(index=False))
-    log.info("PROFILE %s transition vs stable:\n%s", name,
+    log.info("PROFILE %s transition vs stable [%s]:\n%s", name, trans["selector"],
              trans_tbl.round(4).to_string(index=False))
+    log.info("PROFILE %s transition vs stable [%s]:\n%s", name, trans_ex["selector"],
+             trans_tbl_ex.round(4).to_string(index=False))
 
     # --- persist predictions + tables ---
     if not getattr(args, "from_predictions", False):
@@ -955,7 +1080,9 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         stamped.insert(0, "regime_shift", int(sh))
         stamped.insert(1, "timing", regime_timing_label(sh))
         stamped.to_csv(repo_path(cfg.paths.tables, f"m06_uq_{name}_{suffix}.csv"), index=False)
-    trans_tbl.to_csv(
+    # Both selector timings in one file, stamped, ex-ante first: a reader who cites
+    # a row cannot avoid seeing which of the two it is.
+    pd.concat([trans_tbl, trans_tbl_ex], ignore_index=True).to_csv(
         repo_path(cfg.paths.tables, f"m06_uq_{name}_transition_vs_stable.csv"), index=False)
     crps.to_csv(repo_path(cfg.paths.tables, f"m06_uq_{name}_crps.csv"), index=False)
     sigma_diag.to_csv(
@@ -971,7 +1098,10 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     return {"name": name, "point": pt, "calibration": cal, "per_regime_mc": pr_mc,
             "per_regime_q": pr_q, "per_regime_mc_expost": pr_mc_ex,
             "per_regime_q_expost": pr_q_ex, "transition_table": trans_tbl,
-            "transition": trans, "regime_shift": int(DEFAULT_REGIME_SHIFT),
+            "transition_table_expost": trans_tbl_ex,
+            "transition": trans, "transition_expost": trans_ex,
+            "regime_shift": int(DEFAULT_REGIME_SHIFT),
+            "selector_shift": int(DEFAULT_SELECTOR_SHIFT),
             "crps": crps, "sigma_diag": sigma_diag,
             "reliability": rel, "labels": labels, "headline_level": headline_level,
             "q_level": q_level, "dm_mc_vs_lstm": dm, "var_decomp": var_decomp,
