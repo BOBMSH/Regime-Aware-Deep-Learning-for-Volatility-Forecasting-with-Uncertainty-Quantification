@@ -1,0 +1,6 @@
+method,crps,estimator,n
+MC-Dropout-LSTM,4.3058928982516726e-05,log-normal closed form,784
+LSTM-Gaussian,4.3014955175459654e-05,log-normal closed form,784
+Quantile-LSTM,3.549817932842863e-05,"trapezoidal, 3-point grid",784
+MC-Dropout-LSTM (same grid),3.5617823757622764e-05,"trapezoidal, 3-point grid",784
+LSTM-Gaussian (same grid),3.555363576288147e-05,"trapezoidal, 3-point grid",784

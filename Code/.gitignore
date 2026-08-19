@@ -17,22 +17,39 @@ env/
 build/
 dist/
 
-# Data (never commit raw or derived data)
-data/raw/**
+# Data.
+#
+# data/raw/oxfordman/ IS tracked (changed 2026-08-19). The Oxford-Man Realized
+# Library was discontinued in 2022 and the only ingestion route left is a Wayback
+# snapshot URL that may stop resolving. The primary dependent variable of the
+# whole dissertation therefore exists in exactly one place unless it is committed.
+# It is ~55 MB, which is a normal size for a repo and a trivial price for the
+# alternative.
+#
+# yfinance pulls and derived interim/processed data stay ignored: they are
+# re-downloadable and regenerate deterministically from data/raw.
+data/raw/yfinance/**
 data/interim/**
 data/processed/**
 !data/raw/.gitkeep
 !data/interim/.gitkeep
 !data/processed/.gitkeep
 
-# Results artifacts (figures/tables/predictions are generated)
+# Results artifacts.
+#
+# tables/ and predictions/ ARE tracked (changed 2026-08-19). They are small
+# (< 2 MB in total), they are the single source of truth for every number cited
+# in the dissertation, and until they were committed the roadmap's claim that
+# "the committed prediction parquets reproduce the milestone numbers" was not
+# literally true -- nothing was committed, so a fresh checkout (the Phase-9
+# reproducibility gate) would have regenerated nothing at all. An examiner
+# asking "can I reproduce Table 4.2?" must be able to.
+#
+# figures/ and logs/ stay ignored: figures are large, regenerate deterministically
+# from the tracked predictions, and are not cited as evidence.
 results/figures/**
-results/tables/**
-results/predictions/**
 results/logs/**
 !results/figures/.gitkeep
-!results/tables/.gitkeep
-!results/predictions/.gitkeep
 !results/logs/.gitkeep
 
 # Experiment run dirs
