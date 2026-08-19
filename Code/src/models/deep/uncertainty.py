@@ -13,7 +13,8 @@ philosophically distinct schools of neural-network uncertainty (roadmap §1.5):
   the network is run ``T`` times, giving ``T`` stochastic forecasts. Following
   Gal & Ghahramani (2016), the spread across those passes estimates the **model
   (epistemic)** uncertainty; added to the **aleatoric** noise already estimated
-  by the Phase-3 held-out residual variance (the Duan smearing term), it yields,
+  by the Phase-3 held-out residual variance (the log-normal retransformation
+  term), it yields,
   per day, a Gaussian predictive law on log-variance -> a log-normal law on
   variance whose mean is the point forecast and whose central quantiles are the
   prediction interval.
@@ -100,7 +101,8 @@ class MCDropoutLSTMForecaster(LSTMForecaster):
     * predictive mean ``mu`` = mean of the ``T`` log-variance draws;
     * **epistemic** variance ``s2_epi`` = variance of the ``T`` draws;
     * **aleatoric** variance ``s2_ale`` = the held-out residual variance
-      ``_smear_var`` estimated at fit time (the Phase-3 Duan smearing term);
+      ``_smear_var`` estimated at fit time (the Phase-3 log-normal
+      retransformation term);
     * total predictive std ``sigma = sqrt(s2_epi + s2_ale)`` (Gal & Ghahramani
       2016: the two sources add).
 

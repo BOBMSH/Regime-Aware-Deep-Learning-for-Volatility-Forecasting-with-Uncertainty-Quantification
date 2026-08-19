@@ -101,7 +101,9 @@ class LSTMForecaster:
     lr, weight_decay, batch_size, max_epochs, patience, grad_clip : optimisation.
     val_fraction : time-ordered tail of the training window held out for early
         stopping.
-    smearing : if True, apply a log-normal (Duan 1983) bias correction
+    smearing : if True, apply the parametric log-normal retransformation
+        correction exp(mu_hat + sigma_hat^2/2) (exact under Gaussian log-residuals;
+        not Duan's 1983 non-parametric smearing estimator mean(exp(resid)))
         ``exp(mu + 0.5 sigma^2)`` using the held-out residual variance so the
         variance forecast targets the conditional *mean* rather than the median.
     refit_every_folds : see module docstring (``<= 0`` trains once).

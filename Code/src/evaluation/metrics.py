@@ -205,11 +205,90 @@ def mean_pinball_loss(
 ) -> float:
     """Average pinball loss over a set of ``{tau: forecast}`` quantiles.
 
-    A discrete approximation to the CRPS (Gneiting & Raftery 2007) when the
-    ``tau`` grid is dense; with the Phase-6 grid ``{0.05, 0.5, 0.95}`` it is a
-    compact three-point summary of quantile-forecast quality that rewards both
-    calibration and sharpness across the interval, not just at its centre.
+    A compact summary of quantile-forecast quality that rewards both calibration
+    and sharpness across the interval, not just at its centre. It is *not* the
+    CRPS: see :func:`crps_from_quantiles`, which applies the correct quadrature
+    weighting, and :func:`crps_lognormal` for the closed form.
     """
     if not quantile_preds:
         raise ValueError("quantile_preds is empty")
     return float(np.mean([pinball_loss(y_true, q, tau=t) for t, q in quantile_preds.items()]))
+
+
+def crps_from_quantiles(
+    y_true: ArrayLike, quantile_preds: dict[float, ArrayLike]
+) -> float:
+    """CRPS approximated from a set of predictive quantiles (Gneiting & Raftery 2007).
+
+    The continuous ranked probability score has the quantile representation
+
+        CRPS(F, y) = 2 * integral_0^1 PB_tau(y, F^{-1}(tau)) d tau
+
+    where ``PB_tau`` is the pinball loss at level ``tau``. This function evaluates
+    that integral by the trapezoidal rule on whatever ``tau`` grid is supplied,
+    which is why it is **not** the same object as :func:`mean_pinball_loss`: the
+    latter is an unweighted average over the grid points, with no ``2 x`` factor
+    and no spacing weights, so it neither converges to the CRPS nor shares its
+    units. On a dense, regular grid the two differ by roughly a factor of two;
+    on the Phase-6 grid ``{0.05, 0.5, 0.95}`` they differ by more, because the
+    trapezoidal weights are far from uniform.
+
+    Accuracy caveat, stated because a three-point grid is what this project
+    actually has: the integrand is only sampled where quantiles were estimated,
+    and the tails outside ``[min(tau), max(tau)]`` are not sampled at all, so the
+    result is a *lower bound* on the true CRPS that tightens as the grid
+    densifies. Report it as "CRPS (trapezoidal, K-point grid)" rather than as
+    the CRPS, or use :func:`crps_lognormal` where a parametric predictive law is
+    available. Lower is better; units are those of ``y``.
+    """
+    if len(quantile_preds) < 2:
+        raise ValueError("crps_from_quantiles needs at least two quantile levels")
+    taus = sorted(float(t) for t in quantile_preds)
+    if not all(0.0 < t < 1.0 for t in taus):
+        raise ValueError("every tau must lie in (0, 1)")
+    pb = np.array([pinball_loss(y_true, quantile_preds[t], tau=t) for t in taus], dtype=float)
+    return float(2.0 * np.trapezoid(pb, np.asarray(taus, dtype=float)))
+
+
+def crps_lognormal(
+    y_true: ArrayLike, mu: ArrayLike, sigma: ArrayLike
+) -> float:
+    """Closed-form CRPS for a log-normal predictive law (Gneiting & Raftery 2007).
+
+    The Phase-6 MC-Dropout forecaster produces a Gaussian law on **log** variance
+    with mean ``mu`` and std ``sigma``, so the induced law on the variance scale
+    is log-normal and its CRPS has an exact expression -- no grid, no truncation,
+    no quadrature error:
+
+        CRPS(y) = y (2 Phi(w) - 1)
+                  - 2 exp(mu + sigma^2/2) [ Phi(w - sigma) + Phi(sigma/sqrt(2)) - 1 ]
+
+    with ``w = (log y - mu) / sigma``. This is the strictly proper score Chapter 2
+    §2.6/§2.7 invokes when it says a probabilistic forecast "cannot be evaluated
+    by its point estimate alone": unlike coverage, it rewards the whole predictive
+    distribution, and unlike the Winkler score it is not tied to one nominal
+    level. Lower is better; units are those of ``y`` (variance).
+
+    ``mu``/``sigma`` are on the log scale; ``y_true`` is on the variance scale and
+    must be positive.
+    """
+    yt = np.asarray(y_true, dtype=float)
+    m = np.asarray(mu, dtype=float)
+    s = np.asarray(sigma, dtype=float)
+    if not (yt.shape == m.shape == s.shape):
+        raise ValueError(f"shape mismatch: {yt.shape}, {m.shape}, {s.shape}")
+    if np.any(s <= 0):
+        raise ValueError("sigma must be strictly positive")
+    mask = np.isfinite(yt) & np.isfinite(m) & np.isfinite(s) & (yt > 0)
+    if not mask.any():
+        raise ValueError("no finite, positive observations to score")
+    yt, m, s = yt[mask], m[mask], s[mask]
+
+    from scipy import stats as _st
+
+    w = (np.log(yt) - m) / s
+    term_obs = yt * (2.0 * _st.norm.cdf(w) - 1.0)
+    term_pred = 2.0 * np.exp(m + 0.5 * s**2) * (
+        _st.norm.cdf(w - s) + _st.norm.cdf(s / np.sqrt(2.0)) - 1.0
+    )
+    return float(np.mean(term_obs - term_pred))

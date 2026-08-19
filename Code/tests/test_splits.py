@@ -156,6 +156,38 @@ class TestWalkForwardFolds:
             )
         assert set(covered) == set(oos_dates)
 
+    @pytest.mark.parametrize("refit", [5, 21, 42])
+    def test_every_oos_day_is_predicted_for_any_calendar_length(self, trading_index, refit):
+        """Regression: the last OOS day was silently dropped when n %% refit == 1.
+
+        The old boundary construction appended a closing sentinel only when the
+        final ``range`` boundary was not already at ``n - 1``; at ``n %% refit == 1``
+        an interior boundary satisfied that test, so no closing boundary was
+        added and the final day never entered a prediction window. Nothing
+        raised and nothing warned -- the OOS sample was just one day shorter.
+        This sweeps a range of segment lengths (which necessarily includes the
+        pathological residues) against several cadences and demands exact
+        coverage every time.
+        """
+        oos_all = trading_index[trading_index >= pd.Timestamp("2022-01-03")]
+        for n in range(200, 200 + 3 * refit + 5):
+            segment = oos_all[:n]
+            cfg = SplitConfig(
+                train_end="2019-12-31", val_start="2020-01-01", val_end="2021-12-31",
+                test_start=str(segment[0].date()), test_end=str(segment[-1].date()),
+                refit_frequency_days=refit, scheme="anchored",
+            )
+            folds = list(walk_forward_folds(trading_index, cfg))
+            covered: set = set()
+            for f in folds:
+                covered |= set(
+                    trading_index[(trading_index >= f.predict_start)
+                                  & (trading_index <= f.predict_end)]
+                )
+            assert covered == set(segment), (
+                f"n={n}, refit={refit}: {len(set(segment) - covered)} OOS day(s) unpredicted"
+            )
+
     def test_refit_cadence_matches_config(self, trading_index, split_cfg):
         folds = self._collect(trading_index, split_cfg)
         # Each fold's predict window should contain at most refit_frequency_days dates.

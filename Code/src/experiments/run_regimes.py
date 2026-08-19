@@ -425,6 +425,44 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         jp_diverge = float(
             np.abs(jp_smooth_all[:, crisis] - jp_filt_all[:, crisis])[test_mask].mean())
 
+        # --- lambda sensitivity: how much of the conditioning signal is an
+        # artefact of the pre-registered grid's resolution? Every lambda on the
+        # (finer) sensitivity grid is fitted on training rows only and filtered
+        # causally, exactly like the headline, then compared to it day by day.
+        # This is reported, never used to select -- see configs/hmm.yaml.
+        lam_sens = None
+        sens_grid = cfg.get("jump_penalty_sensitivity_grid")
+        if sens_grid is not None:
+            rows = []
+            for lam in [float(x) for x in sens_grid]:
+                try:
+                    m_ = JumpPenalisedHMM(
+                        K, jump_penalty=lam, covariance_type=cfg.models.hmm.covariance_type,
+                        n_init=int(cfg.models.jump.n_init),
+                        max_iter=int(cfg.models.jump.max_iter), seed=seed,
+                    ).fit(Xz_causal[train_mask])
+                except Exception as exc:  # noqa: BLE001 - a degenerate lambda must not kill the run
+                    log.warning("lambda sensitivity: lambda=%.2f failed (%s); skipped", lam, exc)
+                    continue
+                s_ = m_.filtered_proba(Xz_causal).argmax(axis=1)
+                head = jp_filt_all.argmax(axis=1)
+                rows.append({
+                    "jump_penalty": lam,
+                    "train_jumps": int(m_.n_jumps_),
+                    "train_mean_duration_days": float(
+                        len(m_.jump_path_) / max(m_.n_jumps_ + 1, 1)),
+                    "clears_persistence_floor": bool(
+                        len(m_.jump_path_) / max(m_.n_jumps_ + 1, 1)
+                        >= float(cfg.select_by_persistence.min_mean_duration_days)),
+                    "test_switches": int(np.count_nonzero(np.diff(s_[test_mask]))),
+                    "agreement_with_headline_test": float((s_[test_mask] == head[test_mask]).mean()),
+                    "agreement_with_headline_train": float((s_[train_mask] == head[train_mask]).mean()),
+                    "is_headline": bool(abs(lam - lam_causal) < 1e-9),
+                })
+            lam_sens = pd.DataFrame(rows)
+            log.info("lambda sensitivity (training-only fits, causal paths):\n%s",
+                     lam_sens.round(4).to_string(index=False))
+
         causal = {"train_end": train_end, "test_mask": test_mask,
                   "p_filt_all": p_filt_all, "p_smooth_all": p_smooth_all,
                   "mean_abs_divergence_test": diverge, "crisis": crisis,
@@ -432,7 +470,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                   "jp_filt_all": jp_filt_all, "jp_smooth_all": jp_smooth_all,
                   "jp_mean_abs_divergence_test": jp_diverge,
                   "jphmm_tr": jphmm_tr, "lam_causal": lam_causal,
-                  "lam_tbl_tr": lam_tbl_tr}
+                  "lam_tbl_tr": lam_tbl_tr, "lam_sensitivity": lam_sens}
         log.info("causal demo: mean |smoothed-filtered| P(crisis) on test = %.3f "
                  "(HMM) / %.3f (jump-penalised HMM)", diverge, jp_diverge)
 
@@ -481,6 +519,10 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
             repo_path(paths.tables, f"m04_regimes_{name}_causal_signals.csv"), index=False)
         causal["lam_tbl_tr"].to_csv(
             repo_path(paths.tables, f"m04_regimes_{name}_jump_lambda_train.csv"), index=False)
+        if causal.get("lam_sensitivity") is not None:
+            causal["lam_sensitivity"].to_csv(
+                repo_path(paths.tables, f"m04_regimes_{name}_jump_lambda_sensitivity.csv"),
+                index=False)
 
     # --- 6. Figures ---
     figdir = repo_path(paths.figures, "m04"); ensure_dir(figdir)
@@ -624,11 +666,61 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  "instead would not do: it is a softmax over the emission loss alone and ignores "
                  "the jump penalty, i.e. exactly the persistence the chapter argues for.\n")
         p.append(f"The penalty is **re-selected on the training rows only** "
-                 f"(λ = **{c['lam_causal']:.0f}**, smallest λ on the grid whose mean regime "
-                 "duration clears the persistence floor); the full-sample λ reported above is "
-                 "descriptive and would leak into the forecast if reused here (roadmap Phase 4: "
-                 "*the regularisation parameter is also CV-selected on training-only data*). "
-                 f"The train-only sweep is in `results/tables/m04_regimes_{name}_jump_lambda_train.csv`.\n")
+                 f"(λ = **{c['lam_causal']:.0f}**, smallest λ on the pre-registered grid whose "
+                 "mean regime duration clears the persistence floor); the full-sample λ reported "
+                 "above is descriptive and would leak into the forecast if reused here (roadmap "
+                 "Phase 4: *the regularisation parameter is also CV-selected on training-only "
+                 "data*). The train-only sweep is in "
+                 f"`results/tables/m04_regimes_{name}_jump_lambda_train.csv`.\n")
+
+        ls = c.get("lam_sensitivity")
+        if ls is not None and len(ls):
+            head_lam = float(c["lam_causal"])
+            clears = ls[ls["clears_persistence_floor"]]
+            smallest_clearing = float(clears["jump_penalty"].min()) if len(clears) else float("nan")
+            p.append("### Penalty selection and its sensitivity\n")
+            p.append("The selection **grid** matters as much as the rule, so both are reported "
+                     "rather than just the winner. The grid above was fixed on 2026-05-15, before "
+                     "any Phase-5/6 result existed, and is deliberately not widened now: "
+                     "re-choosing a grid once the downstream numbers are visible is a "
+                     "garden-of-forking-paths problem, and pre-registration is the only thing "
+                     "that makes \"λ was not tuned to the answer\" a checkable claim rather than "
+                     "an assurance.\n")
+            p.append("It is coarse between 1 and 3, and that is worth being explicit about. On "
+                     "the finer **sensitivity** grid below the literal rule — *smallest λ "
+                     f"clearing the floor* — would select λ = {smallest_clearing:g} rather than "
+                     f"λ = {head_lam:g}. Two things are true at once: that is what the rule says, "
+                     f"and λ = {smallest_clearing:g} sits one grid point away from the λ = 1 "
+                     "collapse, where mean regime duration falls to a few days — precisely the "
+                     "over-switching pathology Nystrup et al. (2020) introduce the penalty to "
+                     "cure. The headline therefore stays on the pre-registered value, and the "
+                     "sensitivity is published so the reader can see the size of the choice "
+                     "instead of taking it on trust.\n")
+            p.append("Every row is fitted on **training rows only** and filtered causally, "
+                     "exactly like the headline, then compared to it day by day:\n")
+            lines = ["| λ | train jumps | train mean duration (d) | clears floor | test switches "
+                     "| agreement w/ headline (test) | agreement w/ headline (train) |",
+                     "|---|---|---|---|---|---|---|"]
+            for _, r in ls.iterrows():
+                star = " ★" if r["is_headline"] else ""
+                lines.append(
+                    f"| {r['jump_penalty']:g}{star} | {int(r['train_jumps'])} | "
+                    f"{r['train_mean_duration_days']:.1f} | "
+                    f"{'yes' if r['clears_persistence_floor'] else 'no'} | "
+                    f"{int(r['test_switches'])} | "
+                    f"{r['agreement_with_headline_test']:.1%} | "
+                    f"{r['agreement_with_headline_train']:.1%} |")
+            p.append("\n".join(lines) + "\n")
+            plateau = ls[(ls["clears_persistence_floor"])
+                         & (ls["agreement_with_headline_test"] >= 0.95)]
+            if len(plateau) > 1:
+                lo, hi = plateau["jump_penalty"].min(), plateau["jump_penalty"].max()
+                p.append(f"\nλ ∈ [{lo:g}, {hi:g}] is a **stable plateau**: every value in it "
+                         "assigns ≥95% of test days to the same state as the headline, so no "
+                         "conclusion in Phases 5–6 turns on where in that range λ sits. The "
+                         "claim being made is that the *conditioning signal* is robust across "
+                         "the plateau — not that λ is identified to a point. ★ marks the "
+                         f"headline (`results/tables/m04_regimes_{name}_jump_lambda_sensitivity.csv`).\n")
         if cs is not None:
             # Build the whole table as ONE element: the surrounding "\n".join(p)
             # would otherwise put a blank line between rows and break the markdown.

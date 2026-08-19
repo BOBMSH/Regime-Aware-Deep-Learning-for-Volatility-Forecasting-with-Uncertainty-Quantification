@@ -77,7 +77,9 @@ class RegimeExpertForecaster:
     lookback, hidden_size, num_layers, dropout : per-expert network shape.
     lr, weight_decay, batch_size, max_epochs, patience, grad_clip, val_fraction :
         optimisation; shared across experts.
-    smearing : log-normal (Duan 1983) bias correction, estimated from the
+    smearing : parametric log-normal retransformation correction
+        exp(mu_hat + sigma_hat^2/2) -- exact under Gaussian log-residuals, and not
+        Duan's (1983) non-parametric smearing estimator -- estimated from the
         *mixture* residuals on a held-out tail.
     refit_every_folds : ``<= 0`` trains once on the first fold and reuses; ``k>=1``
         retrains every ``k`` folds (same semantics as the Phase-3 LSTM).

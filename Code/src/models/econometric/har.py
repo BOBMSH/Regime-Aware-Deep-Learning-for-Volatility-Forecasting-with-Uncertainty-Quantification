@@ -111,8 +111,12 @@ class HARForecaster:
         yhat = ols.predict(X_oos)
 
         if self.transform == "log":
-            # Exponentiate with a Gaussian smearing correction (Duan 1983): the
-            # residual variance corrects the log-normal retransformation bias.
+            # Exponentiate with the parametric log-normal retransformation
+            # correction exp(mu_hat + sigma_hat^2/2), which is exact under Gaussian
+            # log-residuals. NB this is *not* Duan's (1983) smearing estimator,
+            # which is the non-parametric mean(exp(resid)); the two coincide only
+            # asymptotically under normality. The parametric form is used because
+            # OLS already supplies mse_resid.
             yhat = np.exp(yhat + 0.5 * ols.mse_resid)
 
         floored = yhat < self.floor

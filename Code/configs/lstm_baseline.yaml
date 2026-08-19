@@ -26,7 +26,8 @@ model:
   patience: 15                        # early stopping on a time-ordered inner-val tail
   grad_clip: 1.0
   val_fraction: 0.15                  # inner-validation tail used for early stopping
-  smearing: true                      # log-normal (Duan 1983) bias correction to the variance forecast
+  smearing: true                      # parametric log-normal retransformation exp(mu+sigma^2/2)
+                                      # (NOT Duan 1983 smearing, which is non-parametric)
 
 # --- Hyperparameter sweep on the VALIDATION segment (roadmap Phase 3) ---------
 # Each combination is trained on the train split and scored (QLIKE) on the

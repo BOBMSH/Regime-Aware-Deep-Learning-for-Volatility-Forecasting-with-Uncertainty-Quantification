@@ -39,7 +39,7 @@ model:
   patience: 15
   grad_clip: 1.0
   val_fraction: 0.15
-  smearing: true                       # Duan aleatoric term -> the MC predictive noise floor
+  smearing: true                       # log-normal retransformation term -> the MC aleatoric noise floor
 
 # --- Uncertainty-quantification settings -------------------------------------
 uq:

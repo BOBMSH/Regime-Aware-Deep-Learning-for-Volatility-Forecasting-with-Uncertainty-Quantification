@@ -30,6 +30,11 @@ import numpy as np
 import pandas as pd
 
 from src.evaluation.metrics import coverage_error, mpiw, picp, winkler_score
+from src.evaluation.regime_timing import (
+    DEFAULT_REGIME_SHIFT,
+    align_regime_label,
+    regime_timing_label,
+)
 
 # Variance positivity floor, matched to the LSTM's forecast floor so interval
 # endpoints and point forecasts live on the same scale.
@@ -72,9 +77,9 @@ def lognormal_mean(mu: np.ndarray, sigma: np.ndarray) -> np.ndarray:
     """Mean of the log-normal predictive law on the variance scale: ``exp(mu + sigma^2/2)``.
 
     This is the mean-unbiased point forecast for the conditional *variance* (the
-    QLIKE-appropriate target, Patton 2011) and generalises the Phase-3 Duan
-    smearing correction to a predictive ``sigma`` that also carries the epistemic
-    term.
+    QLIKE-appropriate target, Patton 2011) and generalises the Phase-3 log-normal
+    retransformation correction to a predictive ``sigma`` that also carries the
+    epistemic term.
     """
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
@@ -135,19 +140,35 @@ def per_regime_interval_metrics(
     labels: list[str],
     *,
     level: float,
+    shift: int = DEFAULT_REGIME_SHIFT,
 ) -> pd.DataFrame:
     """Calibration numbers within each regime (RQ3's core: does coverage degrade?).
 
     All inputs are date-indexed and aligned on their shared index. ``reg_state``
-    holds the causal filtered hard regime label (0..K-1, matched to ``labels``).
+    holds the causal filtered hard regime label (0..K-1, matched to ``labels``),
+    dated at ``t`` and **not** pre-lagged.
+
+    ``shift`` selects the bucketing timing and defaults to ``1`` — day ``t`` is
+    bucketed by the regime known at ``t-1``. This is deliberate and it matters:
+    the filtered state ``s_t`` is inferred using the day-``t`` observation, so
+    bucketing by ``state[t]`` would sort days by the very outcome whose interval
+    coverage is then measured inside the bucket. Only the lagged timing supports
+    a claim of the form "coverage is worse in state k", because only then is
+    "state k" something the forecaster knew. Pass ``shift=0`` for the ex-post
+    descriptive split, and label it as such. See
+    :mod:`src.evaluation.regime_timing`.
+
     Returns one row per regime plus an ``all`` row, with ``n``, ``picp``,
-    ``mpiw``, ``winkler`` and ``coverage_error`` at the given ``level``.
+    ``mpiw``, ``winkler`` and ``coverage_error`` at the given ``level``. The
+    timing is recorded on ``.attrs['regime_shift']`` so a table can never be
+    reported without it.
     """
     j = pd.concat(
-        [y_true.rename("y"), lower.rename("lo"), upper.rename("hi"),
-         reg_state.rename("state")],
+        [y_true.rename("y"), lower.rename("lo"), upper.rename("hi")],
         axis=1, join="inner",
     ).dropna(subset=["y", "lo", "hi"])
+    j["state"] = align_regime_label(reg_state, j.index, shift=shift)
+    j = j.dropna(subset=["state"])
     rows = []
     for r, lab in enumerate(labels):
         sub = j[j["state"] == r]
@@ -164,7 +185,10 @@ def per_regime_interval_metrics(
     rec.update({k: v for k, v in
                 interval_metrics(j["y"], j["lo"], j["hi"], level=level).items() if k != "n"})
     rows.append(rec)
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    out.attrs["regime_shift"] = int(shift)
+    out.attrs["regime_timing"] = regime_timing_label(shift)
+    return out
 
 
 # --------------------------------------------------------------------------- #

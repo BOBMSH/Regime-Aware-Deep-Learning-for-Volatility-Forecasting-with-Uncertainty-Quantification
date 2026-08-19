@@ -50,6 +50,12 @@ from omegaconf import OmegaConf
 from src.data.datasets import build_econometric_frame
 from src.data.splits import SplitConfig, walk_forward_folds
 from src.evaluation.metrics import qlike
+from src.evaluation.regime_timing import (
+    DEFAULT_REGIME_SHIFT,
+    align_regime_label,
+    regime_timing_label,
+    transition_day_summary,
+)
 from src.evaluation.rolling import ACTUAL_COL, evaluate_predictions, run_walk_forward
 from src.evaluation.significance import diebold_mariano, model_confidence_set
 from src.models.deep import LSTMForecaster, RegimeExpertForecaster
@@ -124,27 +130,59 @@ def build_models(mcfg, hcfg, appr, *, seed, max_epochs):
 # --------------------------------------------------------------------------- #
 # Per-regime breakdown (core for RQ2)                                          #
 # --------------------------------------------------------------------------- #
-def per_regime_qlike(preds: pd.DataFrame, reg_state: pd.Series, labels, model_cols) -> pd.DataFrame:
-    """Per-regime QLIKE for every model, using the causal filtered state label.
+def per_regime_qlike(
+    preds: pd.DataFrame,
+    reg_state: pd.Series,
+    labels,
+    model_cols,
+    *,
+    shift: int = DEFAULT_REGIME_SHIFT,
+) -> pd.DataFrame:
+    """Per-regime QLIKE for every model, bucketed by the regime known at ``t-shift``.
 
     Rows: one per regime (calm/transitional/crisis) plus an ``all`` row; columns:
-    ``n`` (days in that regime in the test window) + one QLIKE per model.
+    ``n`` (days in that bucket in the test window) + one QLIKE per model.
+
+    ``shift`` defaults to ``1``, which is a methodological choice, not a
+    formatting one. The Phase-4 filtered state ``s_t`` is inferred **using the
+    day-t return**, so bucketing day ``t``'s forecast error by ``state[t]`` sorts
+    days by the very outcome whose error is measured inside the bucket. Under
+    that timing a claim like "the regime models' edge is concentrated in state k"
+    is not falsifiable by a user of the model, because "state k" was not knowable
+    when the forecast was issued. ``shift=1`` uses the label the model itself
+    conditions on (its input window ends at ``t-1``) and matches the lagged
+    indicators :func:`src.evaluation.significance.regime_test_function` feeds to
+    the Giacomini–White test — so the descriptive table and the formal test now
+    answer the same question. Pass ``shift=0`` only for an explicitly-labelled
+    ex-post description. See :mod:`src.evaluation.regime_timing`.
+
+    The timing is recorded on ``.attrs['regime_shift']``.
     """
     y = preds[ACTUAL_COL]
+    lab_series = align_regime_label(reg_state, preds.index, shift=shift)
     rows = []
     for r, lab in enumerate(labels):
-        mask = np.asarray(reg_state.reindex(preds.index) == r)
+        mask = np.asarray(lab_series == float(r))
         rec = {"regime": lab, "n": int(mask.sum())}
         for m in model_cols:
             sub = pd.concat([y[mask], preds[m][mask]], axis=1).dropna()
             rec[m] = qlike(sub.iloc[:, 0], sub.iloc[:, 1]) if len(sub) else np.nan
         rows.append(rec)
-    rec = {"regime": "all", "n": int(len(preds))}
+    # The ``all`` row spans the same days the buckets do, so the bucket counts
+    # add up to it: with shift>0 the first day has no lagged label and is
+    # excluded from both. A mismatched total is exactly how the previous
+    # convention hid the fact that the buckets and the pooled DM tests were run
+    # on different samples.
+    scored = np.asarray(lab_series.notna())
+    rec = {"regime": "all", "n": int(scored.sum())}
     for m in model_cols:
-        sub = pd.concat([y, preds[m]], axis=1).dropna()
+        sub = pd.concat([y[scored], preds[m][scored]], axis=1).dropna()
         rec[m] = qlike(sub.iloc[:, 0], sub.iloc[:, 1])
     rows.append(rec)
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    out.attrs["regime_shift"] = int(shift)
+    out.attrs["regime_timing"] = regime_timing_label(shift)
+    return out
 
 
 def dm_table(preds: pd.DataFrame, pairs) -> pd.DataFrame:
@@ -296,6 +334,17 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
              "for RVₜ only ever conditions on the regime known at t−1. Hyperparameters are "
              "fixed at the Phase-3 selection (hidden 128, lookback 10, lr 1e-3), so "
              "'LSTM → Regime-LSTM' isolates regime-conditioning rather than a new sweep.\n")
+    p.append("> **Refit cadence (read with every number below).** As in Phase 3, the deep "
+             "models use `refit_every_folds: 0`: each network is trained **once** on all "
+             "pre-test data (≤ 2018-12-31) and then frozen across the whole 2019 → Feb-2022 "
+             "out-of-sample window, while GARCH/EGARCH/HAR-RV are refit every 21 trading "
+             "days on an expanding window. Both schemes are leakage-free, but they are not "
+             "symmetric: by February 2022 the econometric baselines have seen three more "
+             "years of data than the networks, including the COVID crash. The asymmetry "
+             "therefore runs **against** the deep models, so their wins are conservative — "
+             "and any deep-model weakness in the high-volatility states cannot be separated "
+             "from the staleness of their training window on this evidence alone. Chapter 3 "
+             "states this; a `refit_every_folds: 1` sensitivity is Phase-8 work.\n")
     p.append("Two architectures (roadmap Phase 5):\n"
              "- **Regime-LSTM-A** — regime as feature: filtered posteriors appended to the "
              "LSTM input (Ch2 §2.5). `Regime-LSTM-A-RVonly` is the same on HAR-RV's exact "
@@ -308,10 +357,36 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append(f"\n![forecast vs actual](../figures/m05/{name}_forecast_vs_actual.png)\n")
 
     p.append("## Per-regime breakdown (RQ2)\n")
-    p.append("QLIKE within each causal-filtered regime over the test window (the COVID-19 "
-             "crash dominates the crisis state):\n")
+    p.append("QLIKE within each regime over the test window. **A day is bucketed by the "
+             "regime known at t−1**, not by the regime the filter assigns to that day. This "
+             "is a methodological choice and it changes the answer: the causal filtered "
+             "state sₜ is inferred *using the day-t return*, so bucketing day t's error by "
+             "sₜ would sort days by the very outcome whose error is being measured inside "
+             "the bucket. Only the t−1 label makes \"the edge is concentrated in state k\" a "
+             "claim about something a user of the model actually knew, and it is the same "
+             "label the regime-aware models condition on and the same one the "
+             "Giacomini–White test below is given.\n")
     p.append(_fmt_per_regime(per, ctx["per_regime_models"]) + "\n")
     p.append(f"\n![per-regime QLIKE](../figures/m05/{name}_per_regime_qlike.png)\n")
+
+    per_ex = ctx.get("per_regime_expost")
+    tr = ctx.get("transition")
+    if per_ex is not None and len(per_ex):
+        p.append("<details><summary><b>Ex-post (contemporaneous) split — descriptive only, "
+                 "do not cite as a conditional result</b></summary>\n")
+        p.append("\nThe same table bucketed by the regime the filter assigns to day t "
+                 "itself. It answers \"what did the market turn out to be doing on the days "
+                 "where model X did well?\", which is narrative colour, not a conditional "
+                 "performance claim. It is printed so the difference between the two "
+                 "conventions is visible rather than hidden.\n")
+        p.append(_fmt_per_regime(per_ex, ctx["per_regime_models"]) + "\n")
+        p.append("\n</details>\n")
+    if tr and tr.get("n_transition"):
+        p.append(f"\nThe two tables differ on **{tr['n_transition']} of {tr['n']} days "
+                 f"({100 * tr['share']:.1f}%)** — the regime-*transition* days, whose bucket "
+                 "is decided by the labelling convention alone. That is the entire gap "
+                 "between them, and it is why a per-regime ranking that flips between "
+                 "conventions is evidence about the convention, not about the models.\n")
 
     mcs = ctx.get("mcs")
     p.append("## Significance — formal DM + Model Confidence Set\n")
@@ -406,16 +481,17 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
             head = ("**No regime-aware model beats the best baseline in any state on this "
                     "partition.** ")
         p.append(head + "; ".join(detail) + ".\n")
-        p.append("Two cautions belong with this table rather than after it. First, it is a "
-                 "*descriptive* split: a day is bucketed by the regime that was active on that "
-                 "day, and the pooled DM tests above are the only significance evidence here — "
-                 "run `python -m src.experiments.report_gw` for the Giacomini–White conditional "
-                 "test, which is the properly sized way to ask whether the loss difference is "
-                 "regime-dependent. Second, the crisis bucket is the smallest and therefore the "
-                 "least stable: with ~9% of the window it takes only a handful of relabelled "
-                 "turning-point days to move its mean substantially, so a crisis-state ranking "
-                 "should be checked against the alternative regime estimator before it is "
-                 "reported as a finding.\n")
+        p.append("Two cautions belong with this table rather than after it. First, the split "
+                 "is still *descriptive*: it reports point estimates per bucket, and the "
+                 "pooled DM tests above are the only significance evidence attached to it — "
+                 "run `python -m src.experiments.report_gw` for the Giacomini–White "
+                 "conditional test, which uses the same t−1 indicators and is the properly "
+                 "sized way to ask whether the loss difference is regime-dependent. Second, "
+                 "the crisis bucket is the smallest and therefore the least stable: with ~9% "
+                 "of the window it takes only a handful of relabelled turning-point days to "
+                 "move its mean substantially, so a crisis-state ranking should be checked "
+                 "against the alternative regime estimator (`configs/regime_lstm_hmm.yaml`) "
+                 "before it is reported as a finding.\n")
 
     # Architecture contrast, also computed.
     if reg_cols and len(per):
@@ -475,6 +551,32 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     )
     max_epochs = args.max_epochs if args.max_epochs else (8 if args.fast else None)
 
+    pred_path = repo_path(cfg.paths.predictions, f"m05_regime_dl_{name}.parquet")
+
+    if getattr(args, "from_predictions", False):
+        # Evaluation-only re-run: reuse the persisted forecasts and rebuild every
+        # downstream table, figure and milestone section. Nothing about the models
+        # changes, so this is *numerically identical* to a full re-run for every
+        # artefact that is a function of the predictions alone -- which is exactly
+        # what an evaluation-convention fix needs, and it avoids re-training on a
+        # different BLAS/thread layout (the ~9-significant-figure drift the roadmap
+        # documents). Use it after changing scoring code; use a full run after
+        # changing model or data code.
+        if not pred_path.exists():
+            raise FileNotFoundError(
+                f"--from-predictions needs {pred_path}; run the full phase first.")
+        log.info("--from-predictions: reusing %s (no training)", pred_path)
+        combined = from_parquet(pred_path).copy()
+        model_names = [c for c in ["Regime-LSTM-A", "Regime-LSTM-A-RVonly", "Regime-LSTM-B"]
+                       if c in combined.columns]
+        if REGIME_STATE_COL in combined.columns:
+            # The persisted state column is the same Phase-4 causal series joined
+            # above; prefer the frame's (longer) copy so the t-1 lag can reach the
+            # trading day before the OOS window starts instead of losing that day.
+            combined = combined.drop(columns=[REGIME_STATE_COL])
+        return _evaluate_profile(cfg, name, combined, model_names, reg_state, labels,
+                                 pred_path, args, persist_predictions=False)
+
     models = build_models(cfg.model, cfg.harness, cfg.approaches, seed=int(cfg.seed),
                           max_epochs=max_epochs)
     log.info("Phase-5 models: %s", [mm.name for mm in models])
@@ -501,17 +603,46 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     for mm in models:
         base[mm.name] = reg_preds[mm.name].reindex(base.index)
     combined = base.dropna(subset=[mm.name for mm in models]).copy()
-    model_cols = [c for c in combined.columns if c != ACTUAL_COL]
 
-    metrics = evaluate_predictions(combined)
+    return _evaluate_profile(cfg, name, combined, [mm.name for mm in models], reg_state,
+                             labels, pred_path, args, persist_predictions=True)
+
+
+# --------------------------------------------------------------------------- #
+# Evaluation half of a profile (shared by the training run and --from-predictions)
+# --------------------------------------------------------------------------- #
+def _evaluate_profile(cfg, name, combined, model_names, reg_state, labels, pred_path,
+                      args, *, persist_predictions: bool) -> dict:
+    """Score a finished prediction board: tables, tests, figures, milestone context.
+
+    Split out of :func:`run_profile` so the ``--from-predictions`` path and the
+    full training path cannot drift: every number in the milestone is produced by
+    this one function whichever way the forecasts were obtained.
+    """
+    model_cols = [c for c in combined.columns if c not in (ACTUAL_COL, REGIME_STATE_COL)]
+
+    metrics = evaluate_predictions(combined[[ACTUAL_COL] + model_cols])
     log.info("PROFILE %s metrics (QLIKE-ranked):\n%s", name, metrics.round(6).to_string())
 
     # --- per-regime breakdown (report the key models to keep the table readable) ---
     per_regime_models = [c for c in ["HAR-RV", "LSTM", "LSTM-RVonly",
                                      "Regime-LSTM-A", "Regime-LSTM-A-RVonly", "Regime-LSTM-B"]
                          if c in combined.columns]
-    per = per_regime_qlike(combined, reg_state, labels, per_regime_models)
-    log.info("PROFILE %s per-regime QLIKE:\n%s", name, per.round(4).to_string(index=False))
+    # HEADLINE table: bucket by the regime known at t-1, the only timing under
+    # which "the edge is concentrated in state k" is a claim about something the
+    # forecaster knew (see src.evaluation.regime_timing). The contemporaneous
+    # table is kept alongside it, explicitly labelled, because the two disagree
+    # and a reader is entitled to see by how much.
+    per = per_regime_qlike(combined, reg_state, labels, per_regime_models,
+                           shift=DEFAULT_REGIME_SHIFT)
+    per_expost = per_regime_qlike(combined, reg_state, labels, per_regime_models, shift=0)
+    trans = transition_day_summary(reg_state, combined.index, shift=DEFAULT_REGIME_SHIFT)
+    log.info("PROFILE %s per-regime QLIKE [%s]:\n%s", name,
+             regime_timing_label(DEFAULT_REGIME_SHIFT), per.round(4).to_string(index=False))
+    log.info("PROFILE %s per-regime QLIKE [%s]:\n%s", name, regime_timing_label(0),
+             per_expost.round(4).to_string(index=False))
+    log.info("PROFILE %s regime-transition days: %d/%d (%.1f%%)", name,
+             trans["n_transition"], trans["n"], 100 * trans["share"])
 
     # --- formal DM (HLN-corrected, Student-t) on the RQ2 pairs ---
     pairs = [("Regime-LSTM-A", "LSTM"), ("Regime-LSTM-A", "HAR-RV"),
@@ -535,13 +666,21 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
              mcs.attrs["included"], mcs.attrs["excluded"])
 
     # --- persist predictions (+ regime label) + tables ---
-    out_pred = combined.copy()
-    out_pred[REGIME_STATE_COL] = reg_state.reindex(out_pred.index).astype("Int64")
-    pred_path = repo_path(cfg.paths.predictions, f"m05_regime_dl_{name}.parquet")
-    to_parquet(out_pred, pred_path)
+    if persist_predictions:
+        out_pred = combined.copy()
+        out_pred[REGIME_STATE_COL] = reg_state.reindex(out_pred.index).astype("Int64")
+        to_parquet(out_pred, pred_path)
     ensure_dir(repo_path(cfg.paths.tables))
     metrics.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_metrics.csv"))
-    per.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_per_regime.csv"), index=False)
+    # Both per-regime tables are written, each stamped with its timing so a
+    # number can never be quoted without the convention that produced it.
+    for tbl, suffix, sh in ((per, "per_regime", DEFAULT_REGIME_SHIFT),
+                            (per_expost, "per_regime_expost", 0)):
+        stamped = tbl.copy()
+        stamped.insert(0, "regime_shift", int(sh))
+        stamped.insert(1, "timing", regime_timing_label(sh))
+        stamped.to_csv(
+            repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_{suffix}.csv"), index=False)
     dm.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_dm.csv"), index=False)
     mcs.to_csv(repo_path(cfg.paths.tables, f"m05_regime_dl_{name}_mcs.csv"))
 
@@ -553,12 +692,15 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                             figdir / f"{name}_forecast_vs_actual.png")
     bar_models = [c for c in ["HAR-RV", "LSTM", "Regime-LSTM-A", "Regime-LSTM-B"] if c in combined.columns]
     plot_per_regime(per, labels, bar_models,
-                    f"Per-regime QLIKE ({name})", figdir / f"{name}_per_regime_qlike.png")
+                    f"Per-regime QLIKE, regime known at t−1 ({name})",
+                    figdir / f"{name}_per_regime_qlike.png")
 
     return {"name": name, "metrics": metrics, "per_regime": per,
+            "per_regime_expost": per_expost, "transition": trans,
             "per_regime_models": per_regime_models, "dm": dm, "mcs": mcs, "labels": labels,
             "n_oos": int(len(combined)), "fast": bool(args.fast), "pred_path": pred_path,
-            "models": [mm.name for mm in models],
+            "models": list(model_names),
+            "regime_shift": int(DEFAULT_REGIME_SHIFT),
             # Which Phase-4 signal was consumed, so the milestone can name it.
             "regime_cols": list(cfg.regime.posterior_cols)}
 
@@ -572,6 +714,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--data-config", default="data")
     ap.add_argument("--fast", action="store_true", help="few epochs (quick CPU smoke pass)")
     ap.add_argument("--max-epochs", type=int, default=0, help="override max epochs (0 = config/fast default)")
+    ap.add_argument(
+        "--from-predictions", action="store_true",
+        help="skip training; rebuild all tables/figures/milestone from the persisted "
+             "predictions parquet (use after changing scoring code, not model code)")
     args = ap.parse_args(argv)
     args.max_epochs = args.max_epochs or None
 

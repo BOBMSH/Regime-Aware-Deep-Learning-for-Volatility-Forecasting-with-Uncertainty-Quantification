@@ -434,6 +434,18 @@ def giacomini_white(
 
     Notes
     -----
+    * **Estimation-window caveat — state this in Chapter 3.** Giacomini & White's
+      asymptotics assume the forecasts come from a *finite* (rolling / fixed)
+      estimation window, so that parameter-estimation error does not vanish and
+      the test is about the *forecasting method* rather than the population
+      model. This project's econometric baselines are refit on an **anchored
+      (expanding)** window, which formally violates that condition; the deep
+      models, trained once and frozen (``refit_every_folds: 0``), satisfy it. In
+      practice the anchored window is standard in applied volatility work and the
+      test is used here as it is in that literature, but the assumption is
+      violated on one side of every deep-vs-econometric pair and should be
+      declared rather than discovered at the viva. It affects the GW test's
+      formal justification, not the descriptive per-regime moments.
     * A **negative** entry in ``moments`` means model *a* has the lower loss in
       that state (same sign convention as :func:`diebold_mariano`).
     * With a constant test function, a matched ``hac_lag`` and

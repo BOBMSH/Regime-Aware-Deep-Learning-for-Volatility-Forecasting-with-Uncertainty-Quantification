@@ -39,7 +39,27 @@ k_grid: [2, 3, 4]
 # --- Jump penalty (tuned, not set a priori: Ch2 sec2.4 / Nystrup 2020) --------
 # lambda governs the persistence bias-variance trade-off; the sweep is reported
 # and a target-persistence value is chosen for the headline jump-model map.
+#
+# SELECTION GRID -- pre-registered. This grid was fixed on 2026-05-15, before any
+# Phase-5/6 result existed, and the selection rule ("smallest lambda whose mean
+# regime duration clears the persistence floor") is applied to it on TRAINING
+# ROWS ONLY. It is deliberately NOT widened after the fact: choosing a grid once
+# the downstream results are visible is a garden-of-forking-paths problem, and
+# the whole point of fixing it in advance is that lambda cannot be tuned to the
+# answer. It selects lambda = 3.0.
 jump_penalty_grid: [1.0, 3.0, 10.0, 30.0, 100.0, 300.0]
+
+# SENSITIVITY GRID -- reported, never used for selection. The pre-registered grid
+# is coarse between 1 and 3, and a finer sweep shows why that matters: the
+# literal "smallest lambda clearing the floor" rule would pick 1.5 on a denser
+# grid, and 1.5 sits one grid point away from the lambda = 1.0 collapse (regimes
+# of 3.3 days -- exactly the over-switching pathology the penalty exists to fix),
+# whereas lambda in [2, 3] is a stable plateau. Rather than silently re-select or
+# quietly redefine the rule, both facts are published: the sweep below and the
+# lambda-agreement table let a reader see the grid sensitivity and judge it.
+# See m04's "Penalty selection and its sensitivity" section.
+jump_penalty_sensitivity_grid: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 5.0, 10.0, 30.0, 100.0, 300.0]
+
 jump_penalty: 30.0            # headline lambda (overridden if select_by_persistence)
 select_by_persistence:
   enabled: true

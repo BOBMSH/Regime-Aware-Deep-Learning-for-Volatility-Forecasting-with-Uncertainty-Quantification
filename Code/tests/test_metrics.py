@@ -8,6 +8,8 @@ import pytest
 
 from src.evaluation.metrics import (
     coverage_error,
+    crps_from_quantiles,
+    crps_lognormal,
     mae,
     mean_pinball_loss,
     mpiw,
@@ -165,6 +167,75 @@ class TestCoverageError:
         lo = y - 1
         hi = y + 1  # full coverage
         assert coverage_error(y, lo, hi, level=1.0) == pytest.approx(0.0)
+
+
+class TestCRPS:
+    """The CRPS closed form is verified against its definition, not against itself.
+
+    CRPS(F, y) = E|X - y| - 0.5 E|X - X'| for X, X' iid from F. Checking the
+    log-normal expression against a Monte-Carlo evaluation of that definition is
+    the only test that would actually catch a transcription error in the formula.
+    """
+
+    @staticmethod
+    def _crps_mc(y: float, mu: float, sigma: float, n: int = 400_000, seed: int = 0) -> float:
+        rng = np.random.default_rng(seed)
+        x = np.exp(rng.normal(mu, sigma, n))
+        xp = np.exp(rng.normal(mu, sigma, n))
+        return float(np.mean(np.abs(x - y)) - 0.5 * np.mean(np.abs(x - xp)))
+
+    @pytest.mark.parametrize(
+        "mu,sigma,y",
+        [(-8.0, 0.6, 3e-4),        # the dissertation's own scale (log-RV)
+         (0.0, 1.0, 1.0),
+         (0.5, 0.3, 2.0)],
+    )
+    def test_lognormal_closed_form_matches_definition(self, mu, sigma, y):
+        closed = crps_lognormal(np.array([y]), np.array([mu]), np.array([sigma]))
+        mc = self._crps_mc(y, mu, sigma)
+        assert closed == pytest.approx(mc, rel=0.01)
+
+    def test_lognormal_is_minimised_at_the_truth(self):
+        """A proper score must prefer the data-generating law to any other."""
+        rng = np.random.default_rng(7)
+        mu, sigma = -8.0, 0.6
+        y = np.exp(rng.normal(mu, sigma, 20_000))
+        best = crps_lognormal(y, np.full_like(y, mu), np.full_like(y, sigma))
+        for bad_mu, bad_sigma in [(mu + 0.5, sigma), (mu - 0.5, sigma),
+                                  (mu, sigma * 2), (mu, sigma / 2)]:
+            worse = crps_lognormal(y, np.full_like(y, bad_mu), np.full_like(y, bad_sigma))
+            assert worse > best
+
+    def test_lognormal_rejects_nonpositive_sigma(self):
+        with pytest.raises(ValueError, match="sigma must be strictly positive"):
+            crps_lognormal(np.array([1.0]), np.array([0.0]), np.array([0.0]))
+
+    def test_quantile_crps_converges_to_the_closed_form(self):
+        from scipy import stats
+
+        rng = np.random.default_rng(11)
+        mu, sigma = -8.0, 0.6
+        y = np.exp(rng.normal(mu, sigma, 5_000))
+        exact = crps_lognormal(y, np.full_like(y, mu), np.full_like(y, sigma))
+        prev_err = np.inf
+        for k in (11, 51, 201):
+            taus = np.linspace(0.0, 1.0, k + 2)[1:-1]
+            qp = {float(t): np.full_like(y, float(np.exp(mu + sigma * stats.norm.ppf(t))))
+                  for t in taus}
+            err = abs(crps_from_quantiles(y, qp) - exact)
+            assert err < prev_err          # monotone improvement with grid density
+            prev_err = err
+        assert prev_err / exact < 0.01     # within 1% by k=201
+
+    def test_quantile_crps_is_not_mean_pinball(self):
+        """Guard against the two being conflated again (they differ by ~2x)."""
+        y = np.array([1.0, 2.0, 3.0])
+        qp = {0.25: y - 0.5, 0.5: y, 0.75: y + 0.5}
+        assert crps_from_quantiles(y, qp) != pytest.approx(mean_pinball_loss(y, qp))
+
+    def test_quantile_crps_needs_two_levels(self):
+        with pytest.raises(ValueError, match="at least two quantile levels"):
+            crps_from_quantiles(np.array([1.0]), {0.5: np.array([1.0])})
 
 
 class TestGuards:
