@@ -357,6 +357,32 @@ def _hac_matrix(Z: np.ndarray, lag: int, *, divisor: str = "n") -> np.ndarray:
       statistic (asserted in the unit tests). The two divisors differ by a factor
       ``(n−k)/n`` per lag — under 0.2% of the statistic at the dissertation's
       ``n ≈ 784``, ``lag = 9``.
+
+    Centring — a known, deliberate, mildly *liberal* choice (state this in Ch3)
+    --------------------------------------------------------------------------
+    ``Z`` is **mean-centred** before the moments are accumulated, i.e. the
+    estimator is the sample (co)variance of ``z_t``. Under the Giacomini–White
+    null the conditional moment ``E[h_(t-1) · d_t]`` is zero, so at ``τ = 1`` the
+    theoretically correct long-run covariance is the **uncentred** second moment
+    ``(1/n) Σ z_t z_t'`` — imposing the null is exactly what makes the Wald
+    statistic asymptotically ``χ²_q``. Centring subtracts ``z̄ z̄'``, which makes
+    ``Ω̂`` smaller and the statistic correspondingly larger: the test is slightly
+    **over-sized**.
+
+    Measured on this project's headline pairs (regime one-hot test function,
+    ``τ = 1``, ``lag = 0``, ``n = 784``) the effect is immaterial:
+
+    * ``Regime-LSTM-B vs HAR-RV``: 40.132 centred, 38.178 uncentred (+5.1%);
+      p 9.99e-09 → 2.59e-08.
+    * ``Regime-LSTM-A vs HAR-RV``: 22.884 centred, 22.235 uncentred (+2.9%);
+      p 4.27e-05 → 5.83e-05.
+
+    No conclusion in the dissertation changes at any conventional level. The
+    centred form is kept because it is what :func:`diebold_mariano` uses, so the
+    documented ``q = 1`` DM/GW equivalence holds exactly; the *direction* of the
+    bias is recorded here — and belongs in Chapter 3 — rather than left for a
+    reader to discover. ``divisor`` does not switch this off; a caller wanting
+    the strict GW estimator should form ``(Z.T @ Z) / n`` directly.
     """
     if divisor not in ("n", "n-k"):
         raise ValueError(f"divisor must be 'n' or 'n-k', got {divisor!r}")

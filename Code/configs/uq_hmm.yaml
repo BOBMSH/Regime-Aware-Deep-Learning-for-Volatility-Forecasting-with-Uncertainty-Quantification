@@ -4,9 +4,34 @@
 #
 # The regime signal is NOT a model input in Phase 6 -- it only defines the
 # per-regime calibration breakdown (RQ3). This variant therefore answers a narrow
-# but fair question: is the "coverage degrades in the crisis regime" finding an
-# artefact of which regime estimator drew the crisis boundary? Identical models,
-# identical intervals; only the partition of the test window changes.
+# but fair question with identical models and identical intervals: only the
+# partition of the test window changes.
+#
+# WHAT THE QUESTION IS NOW (rewritten 2026-08-22, audit vi)
+# ---------------------------------------------------------
+# This block used to read: "is the 'coverage degrades in the crisis regime'
+# finding an artefact of which regime estimator drew the crisis boundary?" That
+# finding was RETRACTED on 2026-08-19 (ii) -- under the correctly-timed t-1 label
+# coverage does not degrade in crisis at all, and the monotone reading came from
+# bucketing each day by a state inferred from that same day's return. The run is
+# still worth having, but it now tests the opposite proposition.
+#
+# The Phase-6 result is a NULL: per-regime coverage carries no usable structure
+# (headline MC-Dropout 0.844 / 0.894 / 0.842 on the t-1 label), and an
+# implementable regime *change* -- 1{s_(t-1) != s_(t-2)} -- does not separate the
+# misses either. A null is the easiest kind of result to produce by accident, and
+# the cheapest way to produce one here would be a regime estimator whose state
+# boundaries are simply uninformative. So the question this profile answers is:
+#
+#     Is the absence of per-regime calibration structure a property of the
+#     INTERVALS, or an artefact of the jump-penalised estimator's partition?
+#
+# Answered 2026-08-22 (v): the Baum-Welch comparator reproduces both retractions
+# -- no monotone degradation with severity on the t-1 label, and no separation on
+# the ex-ante transition selector -- so the null survives a change of regime
+# estimator and is a property of the intervals. That is what makes a GLOBAL
+# sigma-rescale, rather than a per-regime one, the indicated remedy, and it is
+# the evidence Phase 7's pre-registered null rests on.
 #
 # Everything below is identical to configs/uq.yaml except:
 #   * regime.posterior_cols / regime.state_col -> the hmm_filt_* columns

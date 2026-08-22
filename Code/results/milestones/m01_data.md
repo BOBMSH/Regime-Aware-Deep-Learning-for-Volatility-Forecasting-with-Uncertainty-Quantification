@@ -57,6 +57,26 @@ first-order sanity check. The intraday series has fewer observations because its
 coverage ends 2022-02-25, the Oxford-Man `.SPX` boundary and the final sample end
 (see the scope decision below).
 
+> **Units and sample size — read this before comparing the table with any other**
+> *(note added 2026-08-22, audit vi).*
+>
+> 1. **This table is in σ, not σ².** The figures above are daily *standard
+>    deviations* — the mean of √rv — because that is the scale on which three
+>    estimators built in three different ways are legibly comparable. **Every
+>    other table in the project is on the variance scale** (σ² ≈ 1e-4), because
+>    Patton's (2011) proxy-robustness result is derived for the conditional
+>    *variance*, so QLIKE and MSE are computed there. Squaring the mean here does
+>    not recover the mean of the variance series (Jensen's inequality), so these
+>    numbers cannot be read across into `m02_*_metrics.csv` or anything
+>    downstream — they answer a different question on a different scale.
+> 2. **`n_obs` is 5552 here and 5530 in the modelling frame.** This table counts
+>    every Oxford-Man `.SPX` row. The modelling frame is the *inner join* of that
+>    series with the yfinance daily OHLC that supplies `oc_log_return` and the HAR
+>    lags, and it drops any row missing a required column — 22 days on which the
+>    two vendors' calendars disagree or an OHLC field is absent. Every model in
+>    Phases 2–7 runs on the 5530-row frame. The 784-day test window is unaffected;
+>    the discrepancy sits entirely in the earlier history.
+
 ## Scope decision (resolved 2026-07-19) — dataset ends 2022-02-25
 
 The only recoverable Oxford-Man Realized Library snapshot (Wayback Machine, captured

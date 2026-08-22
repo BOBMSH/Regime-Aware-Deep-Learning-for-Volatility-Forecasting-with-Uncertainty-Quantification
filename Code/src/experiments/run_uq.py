@@ -182,6 +182,90 @@ def build_predictions(uq: dict, y_true: pd.Series, reg_state: pd.Series, levels)
 
 
 # --------------------------------------------------------------------------- #
+# Milestone-prose primitives                                                   #
+#                                                                              #
+# These four live at module level, and are unit-tested, for one reason: three  #
+# bugs of the same family have now been found in this project's generated      #
+# milestone notes -- a hardcoded conclusion, a shadowed loop variable printing #
+# lambda=300, and (2026-08-22, audit vi) an "the ordering is non-monotone"     #
+# clause asserted in a branch that had only ever tested monotone-*decreasing*, #
+# which was false for the Baum-Welch comparator's 0.848 / 0.880 / 0.887 and    #
+# propagated verbatim into the roadmap. The numbers in these notes were always #
+# computed; it was the qualitative WORDS that were templated. Anything that    #
+# turns numbers into a claim now lives here where a test can reach it.         #
+# --------------------------------------------------------------------------- #
+def _picp_of(pr: pd.DataFrame, label: str) -> float:
+    """PICP for one regime row of a per-regime table (NaN if absent/empty)."""
+    r = pr[pr["regime"] == label]
+    return float(r["picp"].iloc[0]) if len(r) and pd.notna(r["picp"].iloc[0]) else float("nan")
+
+
+#: End-to-end gap below which "degrades with severity" is not worth asserting.
+#: Two percentage points is already generous at n=76, where one day is 1.3 pp.
+MATERIAL_COVERAGE_GAP = 0.02
+
+
+def coverage_shape(pr: pd.DataFrame, labels: list[str]) -> str:
+    """Classify a per-regime coverage sequence: the note may not call a sequence
+    "non-monotone" without having tested non-monotonicity.
+
+    Returns one of ``"monotone decreasing"``, ``"monotone increasing"``,
+    ``"non-monotone"`` or ``"undetermined"`` (any bucket missing). A constant
+    sequence satisfies both weak orderings and is reported as decreasing, which
+    is the conservative reading against the RQ3 hypothesis.
+    """
+    v = [_picp_of(pr, lb) for lb in labels]
+    if any(np.isnan(x) for x in v):
+        return "undetermined"
+    if all(a >= b for a, b in zip(v, v[1:])):
+        return "monotone decreasing"
+    if all(a <= b for a, b in zip(v, v[1:])):
+        return "monotone increasing"
+    return "non-monotone"
+
+
+def coverage_degrades(pr: pd.DataFrame, labels: list[str],
+                      *, material: float = MATERIAL_COVERAGE_GAP) -> bool:
+    """Does coverage degrade with regime severity, materially and monotonically?
+
+    "Degrades with severity" is a claim about an *ordering*, so the ordering is
+    tested across every state -- not just the endpoints, which a 0.2 pp gap
+    would satisfy by noise -- and the end-to-end gap must clear ``material``.
+    """
+    v = [_picp_of(pr, lb) for lb in labels]
+    if any(np.isnan(x) for x in v):
+        return False
+    return all(a >= b for a, b in zip(v, v[1:])) and (v[0] - v[-1]) >= float(material)
+
+
+def picp_standard_error(pr: pd.DataFrame, label: str) -> float:
+    """Binomial standard error of one bucket's PICP, ``sqrt(p(1-p)/n)``."""
+    p = _picp_of(pr, label)
+    row = pr[pr["regime"] == label]
+    n = int(row["n"].iloc[0]) if len(row) else 0
+    if n <= 0 or np.isnan(p):
+        return float("nan")
+    return float(np.sqrt(max(p * (1.0 - p), 0.0) / n))
+
+
+def endpoint_gap_verdict(pr: pd.DataFrame, labels: list[str]) -> str:
+    """Is the first-vs-last bucket coverage gap inside its own sampling error?
+
+    The generator used to print "well inside sampling noise" flat, with no
+    standard error computed anywhere in the function. This computes the
+    two-bucket standard error and compares the gap against two of them, so the
+    phrase is earned rather than asserted.
+    """
+    gap = abs(_picp_of(pr, labels[0]) - _picp_of(pr, labels[-1]))
+    se = float(np.sqrt(picp_standard_error(pr, labels[0]) ** 2
+                       + picp_standard_error(pr, labels[-1]) ** 2))
+    if np.isnan(gap) or np.isnan(se) or se <= 0:
+        return "not assessable"
+    return ("well inside sampling noise" if gap < 2.0 * se
+            else "larger than sampling noise")
+
+
+# --------------------------------------------------------------------------- #
 # Tables                                                                       #
 # --------------------------------------------------------------------------- #
 def point_metrics_table(preds: pd.DataFrame, lstm_point: pd.Series | None) -> pd.DataFrame:
@@ -791,13 +875,17 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     # every state AND the end-to-end gap to be materially larger than the
     # sampling noise on a ~75-day bucket (2 percentage points is already
     # generous at n=76, where one day is 1.3pp).
-    _MATERIAL = 0.02
-
     def _monotone_down(pr) -> bool:
-        v = [picp_of(pr, lb) for lb in labels]
-        if any(np.isnan(x) for x in v):
-            return False
-        return all(a >= b for a, b in zip(v, v[1:])) and (v[0] - v[-1]) >= _MATERIAL
+        return coverage_degrades(pr, labels)
+
+    def _shape(pr) -> str:
+        return coverage_shape(pr, labels)
+
+    def _picp_se(pr, lb) -> float:
+        return picp_standard_error(pr, lb)
+
+    def _gap_verdict(pr) -> str:
+        return endpoint_gap_verdict(pr, labels)
 
     degrades = _monotone_down(pr_mc) and _monotone_down(pr_q)
     if degrades:
@@ -808,17 +896,28 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     else:
         best_mc = max(labels, key=lambda lb: (-np.inf if np.isnan(picp_of(pr_mc, lb))
                                               else picp_of(pr_mc, lb)))
+        shape_mc, shape_q = _shape(pr_mc), _shape(pr_q)
+        shape_clause = (f"the ordering is {shape_mc}" if shape_mc == shape_q
+                        else f"the ordering is {shape_mc} for MC-Dropout and "
+                             f"{shape_q} for the quantile model")
+        gap_mc = abs(calm_mc - cris_mc)
+        se_gap = float(np.sqrt(_picp_se(pr_mc, labels[0]) ** 2
+                               + _picp_se(pr_mc, labels[-1]) ** 2))
         p.append("**Coverage does *not* degrade monotonically with regime severity.** Under the "
-                 f"t−1 bucketing the ordering is non-monotone: the **{best_mc}** state is the "
+                 f"t−1 bucketing {shape_clause}: the **{best_mc}** state is the "
                  f"*best* covered ({picp_of(pr_mc, best_mc)*100:.1f}% MC-Dropout, "
                  f"{picp_of(pr_q, best_mc)*100:.1f}% quantile), and {labels[0]} and "
-                 f"{labels[-1]} are within {abs(calm_mc - cris_mc)*100:.1f} pp of each other "
+                 f"{labels[-1]} are {gap_mc*100:.1f} pp apart "
                  f"({calm_mc*100:.1f}% vs {cris_mc*100:.1f}% MC-Dropout, {calm_q*100:.1f}% vs "
-                 f"{cris_q*100:.1f}% quantile) — well inside sampling noise on an n={n_crisis} "
-                 "bucket. This is a **correction to the earlier Phase-6 claim** of a monotone "
-                 "degradation, which was computed on the contemporaneous label; that ordering is "
-                 "produced by the bucketing convention, not by the intervals (the ex-post table "
-                 "above still shows it, and the transition split below explains the mechanism).\n")
+                 f"{cris_q*100:.1f}% quantile) — {_gap_verdict(pr_mc)}, since the two-bucket "
+                 f"standard error is {se_gap*100:.1f} pp on an n={n_crisis} "
+                 f"{labels[-1]} bucket. What the correct timing rules out is the *monotone "
+                 "degradation with severity* that RQ3 anticipated; whichever direction the "
+                 "residual ordering runs, it is not that. This is a **correction to the earlier "
+                 "Phase-6 claim**, which was computed on the contemporaneous label; that ordering "
+                 "is produced by the bucketing convention, not by the intervals (the ex-post "
+                 "table above still shows it, and the transition split below explains the "
+                 "mechanism).\n")
     tt2 = ctx.get("transition_table")
     tt2_ex = ctx.get("transition_table_expost")
     if tt2 is not None and len(tt2):

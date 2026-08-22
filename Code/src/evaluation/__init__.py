@@ -17,6 +17,18 @@ from src.evaluation.calibration import (
     per_regime_interval_metrics,
     reliability_curve,
 )
+from src.evaluation.coverage_tests import (
+    christoffersen_cc,
+    christoffersen_independence,
+    coverage_test_suite,
+    dq_incremental,
+    dynamic_quantile,
+    expected_rate,
+    holm_adjust,
+    interval_hits,
+    kupiec_pof,
+    two_sample_coverage_test,
+)
 from src.evaluation.metrics import (
     coverage_error,
     mae,
@@ -95,4 +107,15 @@ __all__ = [
     "selector_is_implementable",
     "transition_mask",
     "transition_day_summary",
+    # Phase 7 -- formal interval-coverage tests (Kupiec / Christoffersen / DQ)
+    "interval_hits",
+    "expected_rate",
+    "kupiec_pof",
+    "christoffersen_independence",
+    "christoffersen_cc",
+    "dynamic_quantile",
+    "dq_incremental",
+    "two_sample_coverage_test",
+    "coverage_test_suite",
+    "holm_adjust",
 ]

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from src.models.deep.lstm import LSTMForecaster, LSTMRegressor
 from src.models.deep.regime_lstm import RegimeExpertForecaster
+from src.models.deep.regime_uncertainty import MCDropoutRegimeExpertForecaster
 from src.models.deep.uncertainty import (
     MCDropoutLSTMForecaster,
     QuantileLSTMForecaster,
@@ -29,6 +30,7 @@ __all__ = [
     "LSTMRegressor",
     "RegimeExpertForecaster",
     "MCDropoutLSTMForecaster",
+    "MCDropoutRegimeExpertForecaster",
     "QuantileLSTMForecaster",
     "QuantileLSTMRegressor",
 ]

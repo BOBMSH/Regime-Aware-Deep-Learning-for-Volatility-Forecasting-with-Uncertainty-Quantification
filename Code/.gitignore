@@ -26,9 +26,31 @@ dist/
 # It is ~55 MB, which is a normal size for a repo and a trivial price for the
 # alternative.
 #
-# yfinance pulls and derived interim/processed data stay ignored: they are
-# re-downloadable and regenerate deterministically from data/raw.
+# data/raw/yfinance/GSPC.parquet and VIX.parquet are ALSO tracked (changed
+# 2026-08-22, audit vi). They were previously excluded as "re-downloadable", and
+# that was wrong for two reasons:
+#
+#   1. Every model that is not HAR-RV or RW-RV depends on them. GARCH and EGARCH
+#      consume `oc_log_return`, which `datasets.build_econometric_frame` builds
+#      from the GSPC OHLC; the LSTM family uses the same column; the VIX feeds
+#      the LSTM-VIX ablation. Without these two files there is no modelling
+#      frame, and `build_econometric_frame` is called BEFORE the
+#      `--from-predictions` branch in run_regime_lstm/run_uq -- so even the
+#      no-retraining evaluation path dies on a results-only checkout. The
+#      Phase-9 gate ("re-run all experiments end-to-end from a fresh checkout")
+#      could not pass.
+#   2. "Re-downloadable" assumes a live network, a working yfinance, and that
+#      the vendor still serves identical history for 2000-2022. None of those is
+#      guaranteed for an examiner opening the repo after submission, and any
+#      silent revision to the vendor's history would change every result while
+#      looking like a reproduction.
+#
+# They are ~1 MB together. Everything else under yfinance/ (the robustness
+# assets, re-pullable and not yet used) plus interim/processed data stays
+# ignored: those regenerate deterministically from data/raw.
 data/raw/yfinance/**
+!data/raw/yfinance/GSPC.parquet
+!data/raw/yfinance/VIX.parquet
 data/interim/**
 data/processed/**
 !data/raw/.gitkeep
