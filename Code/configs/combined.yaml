@@ -1,0 +1,120 @@
+# Phase 7 -- combined regime-aware + uncertainty-aware model, and the formal
+# coverage tests that make RQ3 inferential (ROADMAP.md Phase 7; Ch2 §2.6/§2.7).
+# Run with:  python -m src.experiments.run_combined
+#
+# WHAT PHASE 7 IS
+# ---------------
+# Two deliverables, deliberately kept separable because one needs training and
+# the other does not:
+#
+#   1. THE COMBINED MODEL. "Best of Phase 5" x MC-Dropout. The Phase-5 winner is
+#      Regime-LSTM-B (the mixture-of-experts), selected on the TRANSITIONAL
+#      result -- the only bucket where the regime effect is both large and
+#      formally tested (per-regime DM p=4.3e-09 vs HAR-RV; the state carrying
+#      the GW moment behind chi2(3)=40.1). Calm and crisis are point estimates
+#      on 379 and 76 days with no significant test behind them, and crisis
+#      reverses sign between regime estimators, so selecting on either would be
+#      choosing an architecture on noise. The rule was fixed before this phase
+#      ran; see the roadmap's Phase-7 entry.
+#
+#   2. THE COVERAGE TESTS. Kupiec (1995), Christoffersen (1998) and the
+#      Engle-Manganelli (2004) DQ test, on the FULL 784-day sample with every
+#      regressor lagged into t-1. These run from persisted parquets only and
+#      live in src/experiments/report_coverage.py, so they can be re-run in
+#      seconds without touching the models.
+#
+# THE PRE-REGISTERED EXPECTATION (recorded before the run; roadmap Phase 7)
+# -------------------------------------------------------------------------
+# Kupiec should REJECT decisively -- the intervals are 3.5-7.9 pp too narrow --
+# while Christoffersen's independence component and any t-1 conditioning
+# variable should NOT, because the failures are unclustered and unpredictable.
+# If that holds, the honest RQ3 conclusion is "miscalibration is a LEVEL problem,
+# not a TIMING problem", the combined model is a pre-registered null, and the
+# deliverable is a global width correction reported against it.
+#
+# Writing the expectation down first is what lets a null be reported as a
+# finding rather than as a failed experiment. It also means the run can
+# FALSIFY it, and if it does, that is the more interesting outcome and must be
+# reported as such rather than quietly absorbed.
+
+seed: 17
+
+# --- Regime signal (the conditioning input AND the calibration split) --------
+# HEADLINE = the jump-penalised HMM (Ch2 sec2.4/sec2.8), matching Phases 5 and 6.
+# The Baum-Welch comparator runs from configs/combined_hmm.yaml.
+regime:
+  source: "results/predictions/m04_regimes_intraday_2019_2022.parquet"
+  posterior_cols: [jphmm_filt_p0, jphmm_filt_p1, jphmm_filt_p2]
+  state_col: jphmm_filt_state
+  labels: [calm, transitional, crisis]
+
+# --- Network + optimisation --------------------------------------------------
+# Fixed at the Phase-3 validation selection and NOT re-swept, exactly as in
+# Phases 5 and 6. This is what makes the three-way contrast interpretable:
+# LSTM -> Regime-LSTM-B measures regime conditioning, MC-Dropout-LSTM ->
+# MC-Dropout-Regime-LSTM-B measures the same thing with intervals attached, and
+# neither is confounded with a fresh hyperparameter search.
+model:
+  base_features: [log_rv, oc_log_return]   # the Phase-3/5 feature set
+  regime_features: [reg_p0, reg_p1, reg_p2]
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1                             # head dropout -> the MC-Dropout source
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 90
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true                           # log-normal retransformation -> aleatoric floor
+
+# --- Uncertainty quantification ---------------------------------------------
+# mc_samples MUST match Phase 6 (100). The epistemic term is a variance over T
+# draws and shrinks systematically with T, so an unmatched T would make the
+# Phase-6 and Phase-7 intervals incomparable for a reason having nothing to do
+# with regimes -- which is the only thing this phase is trying to measure.
+uq:
+  mc_dropout:
+    mc_samples: 100
+    mc_seed: 17
+  levels: [0.90, 0.95]
+  headline_level: 0.90
+
+# --- Coverage tests ----------------------------------------------------------
+coverage:
+  dq_lags: 4              # Engle-Manganelli use 4 lagged hits
+  sides: [both, upper]    # pooled, plus the upper tail (the under-warning miss)
+
+# --- Walk-forward harness (identical to Phases 3/5/6) ------------------------
+harness:
+  refit_every_folds: 0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profile ------------------------------------------------------
+profiles:
+  - name: intraday_2019_2022
+    headline: true
+    target: oxfordman_rv5
+    description: "Combined regime-aware MC-Dropout LSTM (Regime-LSTM-B x MC-Dropout) on the canonical Oxford-Man rv5 target; test 2019-01 -> 2022-02-25, COVID-19 out-of-sample. Formal coverage tests on the full sample with t-1 regressors."
+    # Phase-5 predictions (point models incl. Regime-LSTM-B) and Phase-6 UQ
+    # predictions (MC-Dropout / quantile intervals) -- both are read, never written.
+    baseline_predictions: "results/predictions/m05_regime_dl_intraday_2019_2022.parquet"
+    uq_predictions: "results/predictions/m06_uq_intraday_2019_2022.parquet"
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+# --- Output paths ------------------------------------------------------------
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  experiments: "experiments"

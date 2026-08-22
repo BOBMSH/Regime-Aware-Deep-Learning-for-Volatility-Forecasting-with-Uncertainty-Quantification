@@ -1,0 +1,86 @@
+# Phase 7 -- ROBUSTNESS variant: the combined model and the coverage tests run
+# on the plain Baum-Welch HMM regime signal instead of the headline
+# jump-penalised HMM.
+# Run with:  python -m src.experiments.run_combined --config combined_hmm
+#
+# WHY THIS EXISTS
+# ---------------
+# The project's standing rule since 2026-08-22 (v): whenever a headline profile
+# is regenerated, regenerate the comparator in the same pass. That rule was
+# adopted because the `_hmm` profile went stale through three audits without
+# anything noticing -- nothing cross-checks the two profiles automatically.
+#
+# It matters more, not less, in Phase 7. Every conditional coverage claim this
+# phase can make is a claim about a partition of the test window drawn by ONE
+# regime estimator. If a difference in coverage between calm and transitional
+# days appears under the jump-penalised HMM and not under Baum-Welch, it is a
+# property of the partition, not of the intervals -- and the difference between
+# those two readings is the difference between a result and an artefact.
+#
+# Everything below is identical to configs/combined.yaml except:
+#   * regime.posterior_cols / regime.state_col -> the hmm_filt_* columns
+#   * profiles[0].name / baseline_predictions / uq_predictions -> the _hmm outputs
+#   * paths.milestone_file                     -> m07_combined_hmm.md
+
+seed: 17
+
+regime:
+  source: "results/predictions/m04_regimes_intraday_2019_2022.parquet"
+  posterior_cols: [hmm_filt_p0, hmm_filt_p1, hmm_filt_p2]
+  state_col: hmm_filt_state
+  labels: [calm, transitional, crisis]
+
+model:
+  base_features: [log_rv, oc_log_return]
+  regime_features: [reg_p0, reg_p1, reg_p2]
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 90
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+
+uq:
+  mc_dropout:
+    mc_samples: 100
+    mc_seed: 17
+  levels: [0.90, 0.95]
+  headline_level: 0.90
+
+coverage:
+  dq_lags: 4
+  sides: [both, upper]
+
+harness:
+  refit_every_folds: 0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+
+profiles:
+  - name: intraday_2019_2022_hmm
+    headline: false
+    target: oxfordman_rv5
+    description: "ROBUSTNESS (regime-estimator sensitivity, not the headline): the combined model and the coverage tests conditioned on the causal filtered BAUM-WELCH HMM posterior. Identical splits, hyperparameters and harness to the headline run, so the only difference is the regime estimator."
+    baseline_predictions: "results/predictions/m05_regime_dl_intraday_2019_2022_hmm.parquet"
+    uq_predictions: "results/predictions/m06_uq_intraday_2019_2022_hmm.parquet"
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m07_combined_hmm.md"
+  experiments: "experiments"
