@@ -98,6 +98,14 @@ class TestReliabilityCurve:
         assert curve.loc[0, "gap"] == pytest.approx(0.0)
 
 
+# These fixtures score a short synthetic state series over its own full extent, so
+# the leading row is unlabelled by construction and there is no earlier history that
+# could have been supplied. That is the one case where the reach check added in
+# 2026-08-19 (iv) is noise rather than signal; see
+# tests/test_regime_timing.py::TestLabelReach for the case it does catch.
+@pytest.mark.filterwarnings(
+    "ignore::src.evaluation.regime_timing.RegimeLabelReachWarning"
+)
 class TestPerRegime:
     def test_split_and_all_row_expost(self):
         idx = pd.date_range("2020-01-01", periods=6, freq="B")

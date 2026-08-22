@@ -11,6 +11,11 @@ These guard two fixes to the same defect, found in successive audits:
    splitting coverage on it is the same error one level down.
    ``DEFAULT_SELECTOR_SHIFT`` is now 1, and every transition split carries an
    ``implementable`` flag.
+3. 2026-08-19 (iv) — the *source*. Right series, right rule, but handed in
+   already sliced to the evaluation window, so the lag has nothing to reach back
+   to and the first evaluated day is dropped. The buckets then stop summing to
+   the pooled ``n`` and two tables report different values for the same cell.
+   :func:`label_reach` detects the shortfall and ``align_regime_label`` warns.
 """
 
 from __future__ import annotations
@@ -22,8 +27,10 @@ import pytest
 from src.evaluation.regime_timing import (
     DEFAULT_REGIME_SHIFT,
     DEFAULT_SELECTOR_SHIFT,
+    RegimeLabelReachWarning,
     align_regime_label,
     bucket_masks,
+    label_reach,
     regime_timing_label,
     selector_is_implementable,
     selector_timing_label,
@@ -194,6 +201,89 @@ class TestSelectorTiming:
         assert mask.equals(differs.astype(bool))
 
 
+class TestLabelReach:
+    """The 2026-08-19 (iv) fix: the label source must extend back before the window."""
+
+    def test_full_series_reaches_a_later_window(self, states):
+        eval_idx = states.index[5:]
+        reach = label_reach(states, eval_idx, shift=1)
+        assert reach["ok"]
+        assert reach["n_available_before"] == 5
+        assert reach["n_short"] == 0
+
+    def test_a_presliced_series_does_not_reach(self, states):
+        """The defect, in one assertion: slicing first leaves nothing to lag into."""
+        eval_idx = states.index[5:]
+        sliced = states.loc[eval_idx]          # what report_gw used to be handed
+        reach = label_reach(sliced, eval_idx, shift=1)
+        assert not reach["ok"]
+        assert reach["n_available_before"] == 0
+        assert reach["n_short"] == 1
+
+    def test_align_warns_when_the_source_was_presliced(self, states):
+        eval_idx = states.index[5:]
+        with pytest.warns(RegimeLabelReachWarning, match="FULL Phase-4"):
+            align_regime_label(states.loc[eval_idx], eval_idx, shift=1,
+                               warn_unreachable=True)
+
+    def test_align_is_silent_when_the_source_reaches(self, states):
+        eval_idx = states.index[5:]
+        with warnings_as_errors():
+            align_regime_label(states, eval_idx, shift=1, warn_unreachable=True)
+
+    def test_warning_is_opt_in(self, states):
+        """Index arithmetic cannot tell "you sliced it" from "that is the whole
+        series", so the check is off by default and the table builders turn it on."""
+        eval_idx = states.index[5:]
+        with warnings_as_errors():
+            align_regime_label(states.loc[eval_idx], eval_idx, shift=1)
+
+    def test_presliced_source_costs_exactly_the_first_evaluated_day(self, states):
+        """Full vs pre-sliced differ by one labelled row — the whole bug, measured.
+
+        One row is small enough to be dismissed as rounding when two tables
+        disagree, which is why it survived three audits. Lock it down.
+        """
+        eval_idx = states.index[5:]
+        full = align_regime_label(states, eval_idx, shift=1)
+        sliced = align_regime_label(states.loc[eval_idx], eval_idx, shift=1)
+        assert full.notna().sum() == sliced.notna().sum() + 1
+        assert pd.isna(sliced.iloc[0]) and pd.notna(full.iloc[0])
+
+    def test_shift_zero_never_warns(self, states):
+        eval_idx = states.index[5:]
+        with warnings_as_errors():
+            align_regime_label(states.loc[eval_idx], eval_idx, shift=0,
+                               warn_unreachable=True)
+
+    def test_per_regime_interval_metrics_warns_on_a_presliced_source(self):
+        """The Phase-6 table builder turns the check on — assert it stays on."""
+        from src.evaluation.calibration import per_regime_interval_metrics
+
+        idx = pd.date_range("2020-01-01", periods=12, freq="B")
+        st = pd.Series([0, 0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2], index=idx, dtype=float)
+        ev = idx[6:]
+        y = pd.Series(np.linspace(1.0, 2.0, len(ev)), index=ev)
+        lo, hi = y - 0.5, y + 0.5
+        with pytest.warns(RegimeLabelReachWarning):
+            per_regime_interval_metrics(y, lo, hi, st.loc[ev],
+                                        ["calm", "transitional", "crisis"], level=0.9)
+        with warnings_as_errors():
+            per_regime_interval_metrics(y, lo, hi, st,
+                                        ["calm", "transitional", "crisis"], level=0.9)
+
+    def test_buckets_sum_to_the_evaluated_days_when_the_source_reaches(self, states):
+        """The invariant the per-regime tables and the pooled tests share.
+
+        If the buckets do not span every evaluated day, the per-regime table and
+        the pooled DM/MCS numbers are computed on different samples -- which is
+        how the discrepancy stayed invisible.
+        """
+        eval_idx = states.index[5:]
+        masks = bucket_masks(states, eval_idx, 3, shift=1)
+        assert sum(int(m.sum()) for m in masks) == len(eval_idx)
+
+
 class TestConsistencyWithTheGWTestFunction:
     def test_same_lag_as_regime_test_function(self, states):
         """The descriptive table and the formal test must condition identically.
@@ -211,3 +301,60 @@ class TestConsistencyWithTheGWTestFunction:
             from_gw = H[col].fillna(0.0).to_numpy().astype(bool)
             from_timing = np.asarray(lab == float(k))
             assert np.array_equal(from_gw, from_timing)
+
+    def test_gw_indicators_cover_a_shorter_evaluation_window(self, states):
+        """``index=`` is what lets the GW test keep the first evaluated day.
+
+        Without it the caller must pre-slice ``states``, and the test function
+        then conditions on one day fewer than the descriptive table -- the
+        2026-08-19 (iv) defect, which put 0.3107 and 0.3070 into two different
+        published tables for the same crisis-bucket cell.
+        """
+        from src.evaluation.significance import regime_test_function
+
+        eval_idx = states.index[5:]
+        names = ["calm", "transitional", "crisis"]
+
+        H_ok = regime_test_function(states, n_states=3, labels=names, index=eval_idx)
+        assert list(H_ok.index) == list(eval_idx)
+        assert int(H_ok.notna().all(axis=1).sum()) == len(eval_idx)
+
+        with pytest.warns(RegimeLabelReachWarning):
+            H_bad = regime_test_function(states.loc[eval_idx], n_states=3,
+                                         labels=names, index=eval_idx)
+        assert int(H_bad.notna().all(axis=1).sum()) == len(eval_idx) - 1
+
+    def test_gw_indicators_match_the_descriptive_buckets_on_a_shorter_window(self, states):
+        """Same days, same buckets -- asserted across the two code paths.
+
+        This is the assertion that would have caught the defect: the one-hot the
+        Giacomini-White test conditions on must select exactly the rows the
+        per-regime table averages over.
+        """
+        from src.evaluation.significance import regime_test_function
+
+        eval_idx = states.index[5:]
+        names = ["calm", "transitional", "crisis"]
+        H = regime_test_function(states, n_states=3, labels=names, index=eval_idx)
+        masks = bucket_masks(states, eval_idx, 3, shift=DEFAULT_REGIME_SHIFT)
+        for k, col in enumerate(names):
+            assert np.array_equal(H[col].fillna(0.0).to_numpy().astype(bool), masks[k])
+        assert int(sum(m.sum() for m in masks)) == len(eval_idx)
+
+
+def warnings_as_errors():
+    """Context manager turning :class:`RegimeLabelReachWarning` into an error."""
+    import warnings as _w
+
+    ctx = _w.catch_warnings()
+
+    class _Guard:
+        def __enter__(self):
+            ctx.__enter__()
+            _w.simplefilter("error", RegimeLabelReachWarning)
+            return self
+
+        def __exit__(self, *exc):
+            return ctx.__exit__(*exc)
+
+    return _Guard()

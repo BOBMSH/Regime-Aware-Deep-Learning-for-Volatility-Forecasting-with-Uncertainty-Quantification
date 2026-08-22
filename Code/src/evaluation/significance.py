@@ -565,6 +565,7 @@ def regime_test_function(
     n_states: int | None = None,
     shift: int = 1,
     labels: list[str] | None = None,
+    index: pd.Index | None = None,
 ) -> pd.DataFrame:
     """One-hot regime indicators, lagged into the ``t−1`` information set.
 
@@ -577,9 +578,38 @@ def regime_test_function(
     Returns a DataFrame of ``K`` indicator columns (no constant — the indicators
     already span it, and adding one would make the Wald statistic singular).
     Rows whose lagged state is missing are left as NaN for the caller to drop.
+
+    Parameters
+    ----------
+    index : the evaluation dates the indicators are for. **Pass this, together
+        with the full-history ``states`` series, whenever the forecasts being
+        tested cover a shorter window than the regime series.** The lag is then
+        applied on ``states``'s own index and reindexed onto ``index``, so the
+        first evaluated day keeps the label it is entitled to. Omitting it and
+        pre-slicing ``states`` to the evaluation window instead costs that day
+        silently — the 2026-08-19 (iv) defect, which put two different values for
+        the same crisis-bucket cell into ``results/tables/``. ``None`` scores the
+        series over its own index, where the leading row is inherently unlabelled.
+
+    Notes
+    -----
+    The lag itself is delegated to
+    :func:`src.evaluation.regime_timing.align_regime_label`, which is the single
+    shift implementation in the project — so this test function and the
+    descriptive per-regime tables cannot drift apart on what "state k at t−1"
+    means.
     """
-    s = pd.Series(states).astype("float")
-    s = s.shift(int(shift))
+    from src.evaluation.regime_timing import align_regime_label
+
+    own_index = index is None
+    target = pd.Series(states).index if own_index else index
+    # The reach check only makes sense when an evaluation window was named: then
+    # `states` is meant to be the longer history and a shortfall means it arrived
+    # pre-sliced. Scoring the series over its own extent leaves the leading rows
+    # unlabelled by construction, with no earlier history that could have been
+    # passed, so warning there would be noise rather than signal.
+    s = align_regime_label(states, target, shift=int(shift),
+                           warn_unreachable=not own_index)
     K = int(n_states) if n_states is not None else int(np.nanmax(s.to_numpy())) + 1
     names = labels if labels is not None else [f"state{k}" for k in range(K)]
     if len(names) != K:

@@ -64,12 +64,33 @@ take an explicit ``selector_shift`` that **defaults to the implementable timing*
 ``selector_shift=0`` is retained only for the descriptive convention-gap count and
 is stamped ``implementable=False`` wherever it reaches disk or prose.
 
+The label source must reach back before the evaluation window
+--------------------------------------------------------------
+There is a third way to get this wrong, and it is quieter than the first two:
+lag the right series with the right rule, but hand in a series that has *already
+been sliced to the evaluation window*. ``s.shift(1)`` on such a slice has no
+row before its own first date, so the first evaluated day loses its label and is
+dropped — the buckets then no longer sum to the pooled ``n``, and any table built
+that way disagrees with one built from the full history by exactly one day.
+
+That is not hypothetical: it produced two different published values for the same
+crisis-bucket QLIKE cell (0.3070 from the full Phase-4 series, 0.3107 from a
+test-window slice) in the 2026-08-19 (iv) audit. :func:`align_regime_label`
+therefore always shifts on ``reg_state``'s **own** index before reindexing, and
+:func:`label_reach` reports whether the series handed in can actually satisfy the
+requested lag. A shortfall emits a :class:`RegimeLabelReachWarning` naming the
+likely cause, because the symptom (one missing row) is far too small to notice
+and far too easy to explain away.
+
 Nothing here is model code — it is pure pandas index arithmetic, so it is
-unit-testable on its own and shared by the Phase-5 point tables and the Phase-6
-calibration tables, which is what stops the two from drifting apart.
+unit-testable on its own and shared by the Phase-5 point tables, the Phase-6
+calibration tables and the Giacomini–White test function, which is what stops
+them from drifting apart.
 """
 
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -100,9 +121,53 @@ SELECTOR_TIMING_LABEL = {
 }
 
 
+class RegimeLabelReachWarning(UserWarning):
+    """The regime series cannot supply the requested lag for the first evaluated day.
+
+    Almost always means the caller sliced ``reg_state`` to the evaluation window
+    before lagging it. Pass the **full** Phase-4 series instead; the lag is applied
+    on its own index, so it reaches back across the start of the window.
+    """
+
+
 def regime_timing_label(shift: int) -> str:
     """One-line description of a bucketing timing, for tables and prose."""
     return REGIME_TIMING_LABEL.get(int(shift), f"lagged t-{int(shift)}")
+
+
+def label_reach(
+    reg_state: pd.Series,
+    index: pd.Index,
+    *,
+    shift: int = DEFAULT_REGIME_SHIFT,
+) -> dict:
+    """Can ``reg_state`` supply a ``t-shift`` label for the start of ``index``?
+
+    Returns ``{'ok', 'shift', 'n_available_before', 'n_short'}`` where
+    ``n_available_before`` counts observations in ``reg_state`` dated strictly
+    before ``index[0]`` and ``n_short`` is how many of the requested lags are
+    unavailable. ``ok`` is ``True`` when nothing is short.
+
+    Call this (or read the warning :func:`align_regime_label` raises) before
+    building any per-regime table from a series you did not load yourself. A
+    shortfall of one silently costs the first evaluated day, which is exactly the
+    size of discrepancy that gets rationalised rather than investigated.
+
+    Returns ``ok=True`` when the check cannot be performed (empty inputs, or
+    indexes whose types are not comparable) rather than guessing.
+    """
+    s = int(shift)
+    out = {"ok": True, "shift": s, "n_available_before": None, "n_short": 0}
+    if s <= 0 or len(index) == 0 or len(reg_state) == 0:
+        return out
+    try:
+        n_before = int(np.count_nonzero(np.asarray(pd.Series(reg_state).index) < index[0]))
+    except TypeError:  # incomparable index types — not our business to guess
+        return out
+    out["n_available_before"] = n_before
+    out["n_short"] = max(s - n_before, 0)
+    out["ok"] = out["n_short"] == 0
+    return out
 
 
 def selector_timing_label(selector_shift: int) -> str:
@@ -128,6 +193,7 @@ def align_regime_label(
     index: pd.Index,
     *,
     shift: int = DEFAULT_REGIME_SHIFT,
+    warn_unreachable: bool = False,
 ) -> pd.Series:
     """Return the regime label to bucket each date in ``index`` by.
 
@@ -139,6 +205,15 @@ def align_regime_label(
     shift : days to lag the label. ``1`` (default) puts it in the ``t-1``
         information set; ``0`` keeps the contemporaneous label. See the module
         docstring for which question each answers.
+    warn_unreachable : raise :class:`RegimeLabelReachWarning` when ``reg_state``
+        does not extend far enough back to label the start of ``index`` (see
+        :func:`label_reach`). **Pass ``True`` from anything building a per-regime
+        table for a forecast evaluation**, where the regime series is supposed to
+        be a long history and a shortfall means it arrived pre-sliced. It defaults
+        to ``False`` because index arithmetic alone cannot distinguish "you sliced
+        it" from "that is the whole series" — scoring a series over its own full
+        extent leaves the leading ``shift`` rows unlabelled too, and warning there
+        would be noise. Only the caller knows which situation it is in.
 
     Returns
     -------
@@ -153,10 +228,27 @@ def align_regime_label(
     "the previous row of whatever subset is being scored". Reindexing first and
     shifting after would silently reach across a gap at the start of the
     evaluation window and mislabel its first day.
+
+    That only helps if the series handed in *has* the history: passing one already
+    sliced to the evaluation window leaves nothing to reach back to. When that
+    happens a :class:`RegimeLabelReachWarning` is raised naming the shortfall —
+    see :func:`label_reach` and the module docstring.
     """
     s = int(shift)
     if s < 0:
         raise ValueError(f"shift must be >= 0, got {shift}")
+    reach = label_reach(reg_state, index, shift=s)
+    if warn_unreachable and not reach["ok"]:
+        warnings.warn(
+            f"regime label shift={s} but only {reach['n_available_before']} "
+            f"observation(s) precede the first evaluated date ({index[0]!s}): the "
+            f"first {reach['n_short']} row(s) will be unlabelled and dropped from "
+            "every per-regime bucket, so the buckets will no longer sum to the "
+            "pooled n. Pass the FULL Phase-4 regime series rather than one already "
+            "sliced to the evaluation window.",
+            RegimeLabelReachWarning,
+            stacklevel=2,
+        )
     lab = pd.Series(reg_state).astype("float")
     if s:
         lab = lab.shift(s)

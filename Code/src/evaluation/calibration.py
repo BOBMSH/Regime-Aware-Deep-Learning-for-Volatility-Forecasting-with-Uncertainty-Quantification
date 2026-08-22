@@ -167,7 +167,12 @@ def per_regime_interval_metrics(
         [y_true.rename("y"), lower.rename("lo"), upper.rename("hi")],
         axis=1, join="inner",
     ).dropna(subset=["y", "lo", "hi"])
-    j["state"] = align_regime_label(reg_state, j.index, shift=shift)
+    # warn_unreachable: this is a per-regime table for a forecast evaluation, so
+    # ``reg_state`` is meant to be the full Phase-4 history. If it cannot reach
+    # back before the evaluation window it arrived pre-sliced, and the buckets
+    # will silently drop the first scored day (2026-08-19 (iv)).
+    j["state"] = align_regime_label(reg_state, j.index, shift=shift,
+                                    warn_unreachable=True)
     j = j.dropna(subset=["state"])
     rows = []
     for r, lab in enumerate(labels):

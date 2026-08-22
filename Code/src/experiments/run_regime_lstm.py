@@ -159,7 +159,12 @@ def per_regime_qlike(
     The timing is recorded on ``.attrs['regime_shift']``.
     """
     y = preds[ACTUAL_COL]
-    lab_series = align_regime_label(reg_state, preds.index, shift=shift)
+    # warn_unreachable: ``reg_state`` must be the full Phase-4 series, not one
+    # sliced to the test window — otherwise the first scored day loses its t-1
+    # label, the buckets stop summing to the pooled n, and this table disagrees
+    # with report_gw's by exactly one day (2026-08-19 (iv)).
+    lab_series = align_regime_label(reg_state, preds.index, shift=shift,
+                                    warn_unreachable=True)
     rows = []
     for r, lab in enumerate(labels):
         mask = np.asarray(lab_series == float(r))

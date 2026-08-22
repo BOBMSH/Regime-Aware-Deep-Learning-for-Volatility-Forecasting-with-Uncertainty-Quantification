@@ -1,0 +1,9 @@
+selector_shift,selector,implementable,method,days,n,picp,mpiw,winkler,coverage_error
+1,ex-ante 1{s_(t-1) != s_(t-2)} — known at t-1; implementable,True,MC-Dropout-LSTM,regime transition,59,0.847457627118644,0.0001795955109069301,0.0005465947069917446,-0.05254237288135599
+1,ex-ante 1{s_(t-1) != s_(t-2)} — known at t-1; implementable,True,MC-Dropout-LSTM,stable regime,725,0.8662068965517241,0.0001819630992143697,0.0004096168018060658,-0.03379310344827591
+1,ex-ante 1{s_(t-1) != s_(t-2)} — known at t-1; implementable,True,Quantile-LSTM,regime transition,59,0.7796610169491526,0.00015387359861174986,0.0005729350269294573,-0.12033898305084745
+1,ex-ante 1{s_(t-1) != s_(t-2)} — known at t-1; implementable,True,Quantile-LSTM,stable regime,725,0.8248275862068966,0.00016030726220065092,0.0004202549541716841,-0.07517241379310347
+0,ex-post 1{s_t != s_(t-1)} — uses the day-t return; DESCRIPTIVE ONLY,False,MC-Dropout-LSTM,regime transition,59,0.7288135593220338,0.00014315029850886737,0.000560117326730487,-0.17118644067796618
+0,ex-post 1{s_t != s_(t-1)} — uses the day-t return; DESCRIPTIVE ONLY,False,MC-Dropout-LSTM,stable regime,725,0.8758620689655172,0.00018492898546469482,0.0004085163403376716,-0.024137931034482807
+0,ex-post 1{s_t != s_(t-1)} — uses the day-t return; DESCRIPTIVE ONLY,False,Quantile-LSTM,regime transition,59,0.6949152542372882,0.00011954502173528269,0.0005953808671299397,-0.20508474576271185
+0,ex-post 1{s_t != s_(t-1)} — uses the day-t return; DESCRIPTIVE ONLY,False,Quantile-LSTM,stable regime,725,0.8317241379310345,0.0001631008981119772,0.0004184283271760587,-0.06827586206896552
