@@ -1,0 +1,5 @@
+regime_shift,timing,scope,n,nominal,picp_at_fitted_sigma,crps_at_fitted_sigma,coverage_calibrating_scale,picp_at_calibrating_scale,crps_optimal_scale,crps_at_optimal_scale,crps_plateau_lo,crps_plateau_hi
+1,lagged t-1 (conditional / implementable),all,784,0.9,0.8635204081632653,4.014273296611041e-05,1.11,0.9017857142857143,1.15,3.996780336645809e-05,1.08,1.22
+1,lagged t-1 (conditional / implementable),calm,381,0.9,0.8372703412073491,1.3098718714307363e-05,1.22,0.8976377952755905,1.28,1.2930927445387748e-05,1.21,1.36
+1,lagged t-1 (conditional / implementable),transitional,332,0.9,0.8795180722891566,3.0125087901503043e-05,1.04,0.9006024096385542,1.11,3.0035896257348254e-05,1.05,1.17
+1,lagged t-1 (conditional / implementable),crisis,71,0.9,0.9295774647887324,0.00023210931876028803,0.91,0.9014084507042254,1.15,0.00023124404018082877,1.07,1.22
