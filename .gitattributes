@@ -1,0 +1,52 @@
+# Line-ending and diff policy for the dissertation repo.
+#
+# WHY THIS FILE EXISTS (added 2026-08-22, audit vi)
+# -------------------------------------------------
+# The repository had mixed line endings: the headline result tables and
+# milestone notes were written CRLF, the `_hmm` comparator artefacts LF. The two
+# sets are produced by the same code on the same machine, so the difference is
+# an accident of when each file was last written -- but it means a re-run of any
+# phase produces a diff full of whole-file line-ending churn, which hides the
+# handful of lines that actually changed. That is a real risk for this project:
+# every audit round so far has turned on noticing a small numeric change in a
+# generated file.
+#
+# Policy: normalise every text file to LF in the index AND in the working tree.
+# LF in the working tree (rather than CRLF-on-checkout) is deliberate -- the
+# analysis reads these CSVs with pandas, which is agnostic, and a single ending
+# everywhere means a file's stored form and its on-disk form always agree.
+#
+# ONE-TIME MIGRATION: after adding this file, run once
+#     git add --renormalize .
+# and commit the result as its own commit ("normalise line endings"), separate
+# from any content change. That commit will touch many files and no content.
+* text=auto eol=lf
+
+# --- Explicit binaries: never converted, never diffed as text ---------------
+*.parquet   binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.pdf       binary
+*.docx      binary
+*.dotx      binary
+*.xlsx      binary
+*.zip       binary
+*.pt        binary
+*.pth       binary
+*.pkl       binary
+*.ckpt      binary
+
+# --- Text, but with a declared ending ---------------------------------------
+*.py        text eol=lf
+*.md        text eol=lf
+*.csv       text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.toml      text eol=lf
+*.txt       text eol=lf
+*.ipynb     text eol=lf
+
+# The Oxford-Man source CSV is a tracked data artefact, not source: keep it
+# byte-for-byte as downloaded so its checksum stays meaningful.
+Code/data/raw/oxfordman/** -text -diff
