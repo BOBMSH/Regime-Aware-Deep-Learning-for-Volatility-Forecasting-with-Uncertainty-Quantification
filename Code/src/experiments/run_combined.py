@@ -524,6 +524,99 @@ def plot_width_by_regime(w: pd.DataFrame, path: Path, *, level: float) -> Path:
 # --------------------------------------------------------------------------- #
 # Milestone                                                                    #
 # --------------------------------------------------------------------------- #
+#: Spread in the per-regime coverage-calibrating sigma scale below which one
+#: global correction is treated as sufficient.
+SIGMA_SPREAD_THRESHOLD = 0.15
+
+
+def width_correction_verdict(
+    sigma: pd.DataFrame,
+    *,
+    conditional_evidence: bool,
+    spread_threshold: float = SIGMA_SPREAD_THRESHOLD,
+) -> dict:
+    """Global sigma rescale, or per-regime? Decide on **both** available inputs.
+
+    Why this is a function and not two independent sentences
+    --------------------------------------------------------
+    The first version of this note decided the question twice, in two places,
+    from two different inputs, and the two disagreed inside one document: the
+    verdict block concluded *"the deliverable is the global width correction"*
+    from the coverage tests, while the sigma-scale section seven paragraphs
+    later concluded *"the honest deliverable is the per-regime column"* from the
+    spread. Both computations were right; neither knew about the other. Same
+    failure family as the three generator bugs already logged in this project --
+    a claim assembled from one input while a second input bears on it.
+
+    The two inputs answer genuinely different questions and both are needed:
+
+    * **The spread** of the per-regime coverage-calibrating scales is a set of
+      *point estimates*. It says how differently each bucket would have to be
+      rescaled. It carries no standard error, and the crisis bucket is ~75 days,
+      so a wide spread can be noise.
+    * **The coverage tests** say whether any t-1 conditioner predicts a miss
+      once the level is accounted for and the family-wise rate controlled. That
+      is the *tested* question, and it is the one a claim can rest on.
+
+    Four combinations, four different honest conclusions -- in particular a
+    material spread with no significant conditioner is **not** licence to
+    recommend per-regime rescaling, and a significant conditioner with a narrow
+    spread means the interval's *shape* is wrong in a way no rescale fixes.
+
+    Returns ``{'spread', 'material', 'conditional_evidence', 'recommendation',
+    'sentence'}``.
+    """
+    per = sigma[sigma["scope"] != "all"]
+    if not len(per):
+        return {"spread": float("nan"), "material": False,
+                "conditional_evidence": bool(conditional_evidence),
+                "recommendation": "global",
+                "sentence": "No per-regime scales were estimable, so only the "
+                            "global correction is reported."}
+    lo = float(per["coverage_calibrating_scale"].min())
+    hi = float(per["coverage_calibrating_scale"].max())
+    spread = hi - lo
+    material = spread > float(spread_threshold)
+    ev = bool(conditional_evidence)
+
+    if material and ev:
+        rec = "per-regime"
+        s = (f"Per-regime coverage-calibrating scales span {lo:.2f}–{hi:.2f} "
+             f"(spread {spread:.2f}), and the coverage tests independently find a "
+             f"t−1 conditioner that predicts a miss. Point estimates and formal "
+             f"tests agree, so **the deliverable is the per-regime column**: a "
+             f"single global scale would leave real, testable regime-dependent "
+             f"miscalibration on the table.")
+    elif material and not ev:
+        rec = "global, per-regime indicative"
+        s = (f"Per-regime coverage-calibrating scales span {lo:.2f}–{hi:.2f} "
+             f"(spread {spread:.2f}), which looks material — but the coverage "
+             f"tests find no t−1 conditioner that predicts a miss once the level "
+             f"is accounted for and the family-wise rate controlled. These scales "
+             f"are point estimates with no standard error attached, on buckets as "
+             f"small as the crisis one, so the spread is **not** evidence of "
+             f"regime-dependent miscalibration. **The defensible deliverable is "
+             f"the global scale**, with the per-regime column reported as "
+             f"indicative and explicitly untested.")
+    elif ev:
+        rec = "global, shape problem noted"
+        s = (f"Per-regime coverage-calibrating scales span only {lo:.2f}–{hi:.2f} "
+             f"(spread {spread:.2f}), so **one global scale is the right width "
+             f"correction** — but the coverage tests do find a t−1 conditioner "
+             f"that predicts a miss. A conditioner that matters while the "
+             f"required widths do not differ points at the interval's *shape* "
+             f"rather than its width: no rescaling of a log-normal band fixes it, "
+             f"and that belongs in the Chapter 5 discussion.")
+    else:
+        rec = "global"
+        s = (f"Per-regime coverage-calibrating scales span only {lo:.2f}–{hi:.2f} "
+             f"(spread {spread:.2f}) and no t−1 conditioner predicts a miss, so "
+             f"**one global scale is sufficient** and the pre-registered "
+             f"deliverable stands unamended.")
+    return {"spread": spread, "material": material, "conditional_evidence": ev,
+            "recommendation": rec, "sentence": s}
+
+
 def write_milestone(ctx: dict, out_path: Path) -> Path:
     """Generate ``m07_combined.md``.
 
@@ -614,18 +707,33 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append(f"| no t−1 subsample differs in *upper-tail* coverage | (not pre-registered) | "
              f"**{len(diff_up_sig)} of {len(diff_up)} survive Holm** |\n")
 
-    if kup_all_reject and ind_none_reject and not inc_any and not len(diff_up_sig):
+    # One decision, made once, from BOTH inputs -- the tested evidence and the
+    # per-regime rescale spread. An earlier version decided it twice, here and
+    # again in the deliverable section, from different inputs, and the two
+    # disagreed inside one note. See width_correction_verdict.
+    conditional_evidence = bool(inc_any or len(diff_up_sig))
+    wv = width_correction_verdict(sig, conditional_evidence=conditional_evidence)
+    ctx["width_verdict"] = wv
+
+    if kup_all_reject and ind_none_reject and not conditional_evidence:
         p.append("**The pre-registration holds in full.** Miscalibration is a "
-                 "level problem, not a timing problem; the combined model is a "
-                 "pre-registered null; the deliverable is the global width "
-                 "correction in the σ-scale table below.\n")
+                 "level problem, not a timing problem, and the combined model is "
+                 "a pre-registered null. "
+                 + ("The deliverable is the global width correction in the "
+                    "σ-scale table below.\n" if wv["recommendation"] == "global"
+                    else "On the width correction itself the σ-scale table needs "
+                         "reading with care — see the deliverable section, which "
+                         "reconciles the per-regime point estimates against the "
+                         "absence of tested evidence.\n"))
     elif kup_all_reject and ind_none_reject:
         p.append("**The pre-registration holds in its main clauses and is "
                  "partially falsified in its last one.** The level is wrong and "
                  "the misses are unclustered, as predicted — but the claim that "
                  "*nothing* knowable at t−1 predicts a miss does not survive "
                  "contact with the one-sided tests. That is the more interesting "
-                 "outcome and is reported as such below, not absorbed.\n")
+                 "outcome and is reported as such below, not absorbed. On the "
+                 f"remedy, the recommendation is **{wv['recommendation']}** — the "
+                 "deliverable section gives the reasoning.\n")
     else:
         p.append("**The pre-registration is falsified in a main clause.** Read "
                  "the table above before anything else in this note.\n")
@@ -779,19 +887,7 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  f"(plateau {g0['crps_plateau_lo']:.2f}–"
                  f"{g0['crps_plateau_hi']:.2f}, so quote it as approximate).")
         if len(per):
-            spread = float(per["coverage_calibrating_scale"].max()
-                           - per["coverage_calibrating_scale"].min())
-            p.append(f" Per-regime coverage-calibrating scales span "
-                     f"{per['coverage_calibrating_scale'].min():.2f}–"
-                     f"{per['coverage_calibrating_scale'].max():.2f} "
-                     f"(spread {spread:.2f}). "
-                     + ("That spread is small relative to the global correction, "
-                        "so **one global scale is sufficient** and the "
-                        "pre-registered deliverable stands.\n"
-                        if spread <= 0.15 else
-                        "That spread is **material**, so a single global scale "
-                        "leaves regime-dependent miscalibration on the table and "
-                        "the honest deliverable is the per-regime column.\n"))
+            p.append(" " + ctx["width_verdict"]["sentence"] + "\n")
 
     p.append("\n## Reproduce\n")
     p.append("```\npython -m src.experiments.run_combined"

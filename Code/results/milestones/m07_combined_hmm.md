@@ -21,7 +21,7 @@ Recorded in `ROADMAP.md` **before** this phase was run: *Kupiec should reject de
 | no t−1 conditioner predicts a miss (pooled hit) | yes | **no conditioner survives Holm** |
 | no t−1 subsample differs in *upper-tail* coverage | (not pre-registered) | **0 of 16 survive Holm** |
 
-**The pre-registration holds in full.** Miscalibration is a level problem, not a timing problem; the combined model is a pre-registered null; the deliverable is the global width correction in the σ-scale table below.
+**The pre-registration holds in full.** Miscalibration is a level problem, not a timing problem, and the combined model is a pre-registered null. On the width correction itself the σ-scale table needs reading with care — see the deliverable section, which reconciles the per-regime point estimates against the absence of tested evidence.
 
 
 ## Master results table (headline level 90%)
@@ -202,7 +202,7 @@ Both tails are worst in the same state, so the pooled view captures the structur
 | 1 | lagged t-1 (conditional / implementable) | crisis | 71 | 0.9 | 0.9296 | 0.00023210932 | 0.91 | 0.9014 | 1.15 | 0.00023124404 | 1.07 | 1.22 |
 
 Globally, σ × **1.11** brings coverage to 0.9018 against a 90% nominal, and σ × **1.15** minimises CRPS (plateau 1.08–1.22, so quote it as approximate).
- Per-regime coverage-calibrating scales span 0.91–1.22 (spread 0.31). That spread is **material**, so a single global scale leaves regime-dependent miscalibration on the table and the honest deliverable is the per-regime column.
+ Per-regime coverage-calibrating scales span 0.91–1.22 (spread 0.31), which looks material — but the coverage tests find no t−1 conditioner that predicts a miss once the level is accounted for and the family-wise rate controlled. These scales are point estimates with no standard error attached, on buckets as small as the crisis one, so the spread is **not** evidence of regime-dependent miscalibration. **The defensible deliverable is the global scale**, with the per-regime column reported as indicative and explicitly untested.
 
 
 ## Reproduce
