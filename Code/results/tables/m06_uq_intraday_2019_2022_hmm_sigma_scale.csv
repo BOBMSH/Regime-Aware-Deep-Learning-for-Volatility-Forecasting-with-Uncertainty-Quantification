@@ -1,2 +1,2 @@
 method,nominal,crps_at_fitted_sigma,crps_optimal_sigma_scale,crps_at_optimal_scale,coverage_calibrating_sigma_scale,picp_at_fitted_sigma,n
-MC-Dropout-LSTM,0.9,4.305892989227921e-05,1.24,4.255701456533828e-05,1.1400000000000001,0.8647959183673469,784
+MC-Dropout-LSTM,0.9,4.3058928982516726e-05,1.24,4.255701376326079e-05,1.1400000000000001,0.8647959183673469,784

@@ -1,0 +1,56 @@
+seed: 17
+features:
+  primary: returns
+  ablation: returns_logrv
+  standardize: true
+models:
+  hmm:
+    enabled: true
+    covariance_type: full
+    n_init: 12
+    n_iter: 200
+    tol: 0.0001
+  jump:
+    enabled: true
+    n_init: 12
+    max_iter: 40
+k_grid:
+- 2
+- 3
+- 4
+jump_penalty_grid:
+- 1.0
+- 3.0
+- 10.0
+- 30.0
+- 100.0
+- 300.0
+jump_penalty: 30.0
+select_by_persistence:
+  enabled: true
+  min_mean_duration_days: 15
+vix_validation:
+  enabled: true
+causal_demo:
+  enabled: true
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+profiles:
+- name: intraday_2019_2022
+  headline: true
+  target: oxfordman_rv5
+  description: Regime detection on S&P 500 daily data over the Oxford-Man rv5 coverage
+    (2000 -> 2022-02-25). HMM + Nystrup jump model on standardised daily log returns;
+    K in {2,3,4} by BIC; VIX-quantile external validation; smoothed (descriptive)
+    and causal-filtered (Phase-5) posteriors.
+paths:
+  tables: results/tables
+  figures: results/figures
+  predictions: results/predictions
+  milestones: results/milestones
+  experiments: experiments
+_snapshot_utc: '2026-08-18T22:31:12+00:00'

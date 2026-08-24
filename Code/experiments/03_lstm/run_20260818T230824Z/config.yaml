@@ -1,0 +1,65 @@
+seed: 17
+model:
+  features:
+  - log_rv
+  - oc_log_return
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 0.001
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 150
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+sweep:
+  enabled: true
+  hidden_size:
+  - 32
+  - 64
+  - 128
+  lookback:
+  - 10
+  - 20
+  - 40
+  lr:
+  - 0.001
+  - 0.0001
+robustness:
+  rv_only_lstm: true
+  rv_only_features:
+  - log_rv
+  vix_lstm: true
+  vix_features:
+  - log_rv
+  - oc_log_return
+  - log_vix
+harness:
+  refit_every_folds: 0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+profiles:
+- name: intraday_2019_2022
+  headline: true
+  target: oxfordman_rv5
+  description: Oxford-Man intraday rv5 (canonical ABDL target); LSTM vs the Phase
+    2 econometric baselines on the identical anchored walk-forward; test 2019-01 ->
+    2022-02-25 with the COVID-19 crash out-of-sample.
+  baseline_predictions: results/predictions/m02_intraday_2019_2022.parquet
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+paths:
+  tables: results/tables
+  figures: results/figures
+  predictions: results/predictions
+  milestones: results/milestones
+  experiments: experiments
+_snapshot_utc: '2026-08-18T23:08:24+00:00'

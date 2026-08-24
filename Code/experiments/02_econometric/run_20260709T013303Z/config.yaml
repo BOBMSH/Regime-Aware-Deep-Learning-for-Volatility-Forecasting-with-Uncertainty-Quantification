@@ -1,0 +1,58 @@
+seed: 17
+models:
+  garch:
+    enabled: true
+    dist: normal
+    p: 1
+    q: 1
+  egarch:
+    enabled: true
+    dist: normal
+    p: 1
+    o: 1
+    q: 1
+  har:
+    enabled: true
+    transform: level
+  naive_rw:
+    enabled: true
+harness:
+  return_col: log_return
+  scale: 100.0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+profiles:
+- name: intraday_2019_2022
+  headline: true
+  target: oxfordman_rv5
+  description: Oxford-Man intraday rv5 (canonical ABDL target); anchored walk-forward;
+    test 2019-01 -> 2022-02-25 with the COVID-19 crash as the headline out-of-sample
+    stressor.
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+- name: yang_zhang_diagnostic
+  headline: false
+  target: yang_zhang
+  description: TARGET-VALIDITY DIAGNOSTIC (not a result). Yang-Zhang OHLC RV over
+    the same window. Its 21-day rolling smoothing pushes the target's lag-1 autocorrelation
+    to ~0.996, which trivialises persistence models (random walk, HAR) and inflates
+    GARCH error by ~20x. Included to justify why a genuine daily intraday RV target
+    is required.
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+paths:
+  tables: results/tables
+  figures: results/figures
+  predictions: results/predictions
+  milestones: results/milestones
+  experiments: experiments
+_snapshot_utc: '2026-07-09T01:33:03+00:00'

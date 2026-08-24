@@ -15,10 +15,19 @@ milestone notes:
    (0.848 / 0.880 / 0.887). That clause reached `m06_uq_hmm.md` and from there
    the roadmap changelog.
 
-The pattern in all three: the *numbers* in these notes were computed, but the
+4. (2026-08-24, audit vii/viii) *"Both tails are worst in the same state, so
+   the pooled view captures the structure adequately here"* -- emitted by
+   ``run_combined.py`` from an ``argmax(upper_rate) == argmax(lower_rate)``
+   comparison, in a note whose own verdict table reported **0 of 16** pooled
+   subsample differences surviving Holm against **5 of 16** on the upper tail.
+   The premise was true and the conclusion was refuted by the same document.
+
+The pattern in all four: the *numbers* in these notes were computed, but the
 qualitative *words* were templated into branches. The primitives that turn
 numbers into claims are therefore module-level and tested here. The test that
-would have caught (3) is :meth:`TestCoverageShape.test_monotone_increasing_is_not_called_non_monotone`.
+would have caught (3) is :meth:`TestCoverageShape.test_monotone_increasing_is_not_called_non_monotone`;
+the one that would have caught (4) is
+:meth:`TestPooledViewVerdict.test_the_headline_counts_do_not_read_as_adequate`.
 """
 
 from __future__ import annotations
@@ -27,6 +36,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.experiments.run_combined import pooled_view_verdict
 from src.experiments.run_uq import (
     MATERIAL_COVERAGE_GAP,
     coverage_degrades,
@@ -133,3 +143,66 @@ class TestEndpointGapVerdict:
     def test_missing_bucket_is_not_assessable(self):
         assert endpoint_gap_verdict(_pr([np.nan, 0.89, 0.84]), LABELS) == \
             "not assessable"
+
+
+def _diff(p_holms) -> pd.DataFrame:
+    """The `difference in coverage` rows the verdict reads: only p_holm matters."""
+    return pd.DataFrame({"p_holm": list(p_holms)})
+
+
+class TestPooledViewVerdict:
+    """The audit-vii defect: an argmax was used to license a claim about whether
+    the pooled two-sided view is adequate. Adequacy is a claim about the tests,
+    so every branch here is decided from Holm-adjusted counts."""
+
+    def test_the_headline_counts_do_not_read_as_adequate(self):
+        """The regression. Headline profile, 90% level: nothing survives Holm
+        pooled, five of sixteen do on the upper tail. The old generator printed
+        'the pooled view captures the structure adequately here'."""
+        pooled = _diff([1.0] * 16)
+        upper = _diff([0.0295, 0.0192, 0.0048, 0.0130, 0.0033] + [1.0] * 11)
+        v = pooled_view_verdict(pooled, upper)
+        assert v["verdict"] == "pooled understates"
+        assert v["n_pooled_significant"] == 0 and v["n_upper_significant"] == 5
+        assert "adequate" not in v["sentence"].lower()
+        assert "0 of 16" in v["sentence"] and "5 of 16" in v["sentence"]
+
+    def test_no_structure_anywhere_makes_no_adequacy_claim(self):
+        """The comparator profile: 0 of 16 on both sides. The honest reading is
+        that nothing is established either way -- the branch the argmax version
+        could not express, because both argmaxes still land somewhere."""
+        v = pooled_view_verdict(_diff([1.0] * 16), _diff([1.0] * 16))
+        assert v["verdict"] == "no structure either way"
+        assert "descriptive only" in v["sentence"]
+        assert "adequate" not in v["sentence"].lower()
+
+    def test_pooled_can_be_the_sharper_view(self):
+        v = pooled_view_verdict(_diff([0.01, 0.02, 1.0]), _diff([1.0, 1.0, 1.0]))
+        assert v["verdict"] == "pooled is sharper"
+        assert v["n_pooled_significant"] == 2
+
+    def test_equal_and_nonzero_counts_read_as_agreement(self):
+        v = pooled_view_verdict(_diff([0.01, 1.0]), _diff([0.02, 1.0]))
+        assert v["verdict"] == "views agree"
+
+    def test_every_sentence_carries_its_own_counts(self):
+        """No branch may assert without showing the evidence -- that is what
+        made the previous four defects survive review."""
+        cases = [(_diff([1.0] * 4), _diff([0.01] + [1.0] * 3)),
+                 (_diff([1.0] * 4), _diff([1.0] * 4)),
+                 (_diff([0.01, 1.0]), _diff([1.0, 1.0])),
+                 (_diff([0.01, 1.0]), _diff([0.02, 1.0]))]
+        for pooled, upper in cases:
+            s = pooled_view_verdict(pooled, upper)["sentence"]
+            assert "pooled" in s and "upper-tail" in s
+
+    def test_empty_frames_do_not_raise(self):
+        v = pooled_view_verdict(_diff([]), None)
+        assert v["verdict"] == "no structure either way"
+        assert v["n_pooled"] == 0 and v["n_upper"] == 0
+
+    def test_alpha_is_respected(self):
+        borderline = _diff([0.03])
+        assert pooled_view_verdict(_diff([1.0]), borderline)["n_upper_significant"] == 1
+        assert pooled_view_verdict(_diff([1.0]), borderline,
+                                   alpha=0.01)["n_upper_significant"] == 0

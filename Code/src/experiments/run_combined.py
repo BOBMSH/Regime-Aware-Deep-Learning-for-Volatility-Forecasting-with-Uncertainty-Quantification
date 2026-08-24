@@ -183,6 +183,91 @@ def build_predictions(uq_frame: pd.DataFrame, y_true: pd.Series,
     return out
 
 
+#: Tolerance for the Phase-5 inheritance check, on the log-variance scale.
+#: A same-environment refit of this codebase reproduces to ~1e-6 -- Phase 6
+#: re-trains the Phase-3 LSTM from the same config and matches it to 9.6e-7 --
+#: so 1e-3 sits three orders above the numerical floor while staying far below
+#: the 1.44e-2 sd / 0.18 max drift that a change of interpreter produced.
+PHASE5_INHERITANCE_TOL = 1e-3
+
+
+def assert_inherits_phase5_training(
+    preds: pd.DataFrame, base: pd.DataFrame, *, tol: float = PHASE5_INHERITANCE_TOL
+) -> float:
+    """Verify on the *artefacts* that the combined model is the Phase-5 model.
+
+    Why this is here and not (only) in a unit test -- audit (vii), 2026-08-23
+    ------------------------------------------------------------------------
+    Phase 7's whole interpretive claim is that training is inherited unchanged,
+    so the contrast ``MC-Dropout-LSTM -> MC-Dropout-Regime-LSTM-B`` isolates
+    regime conditioning and nothing else. ``tests/test_regime_uncertainty.py``
+    certifies it -- and structurally cannot certify what matters, because it
+    fits both objects inside a single process. It catches a coding error; it
+    cannot catch the two artefacts having been produced by two different
+    interpreters, which is exactly what happened: Phase 5 was fitted under
+    CPython 3.10 and Phase 7 under 3.12, and the dropout-off mixture missed the
+    committed Phase-5 forecast by up to 18% on 2020-03-03.
+
+    This function checks the claim where both artefacts are already in memory.
+    The dropout-off column ``mc_mu_log_det`` is the Phase-5 log-space point, so
+
+        exp(mu_log_det + s2_aleatoric / 2)
+
+    must reproduce the Phase-5 ``Regime-LSTM-B`` variance forecast, both being
+    the same log-normal retransformation of the same mixture. Returns the worst
+    absolute log deviation and raises above ``tol``.
+
+    A missing ``Regime-LSTM-B`` column (an unusual baseline file) downgrades to
+    a warning: the check is a guard on a claim, not a hard dependency of the
+    phase.
+    """
+    if BEST_OF_PHASE5 not in base.columns:
+        log.warning(
+            "Phase-5 inheritance check SKIPPED: no '%s' column in the baseline "
+            "predictions; the 'training inherited unchanged' claim is unverified "
+            "for this run.", BEST_OF_PHASE5)
+        return float("nan")
+
+    det = np.exp(preds["mc_mu_log_det"].astype(float)
+                 + 0.5 * preds["mc_sd_aleatoric"].astype(float) ** 2)
+    j = pd.concat([det.rename("det"), base[BEST_OF_PHASE5].astype(float).rename("ref")],
+                  axis=1, join="inner").replace([np.inf, -np.inf], np.nan).dropna()
+    if j.empty:
+        raise RuntimeError(
+            "Phase-5 inheritance check: the combined predictions and the Phase-5 "
+            "baseline share no dates -- the two profiles are misaligned.")
+
+    dev = np.abs(np.log(j["det"].to_numpy() / j["ref"].to_numpy()))
+    worst, spread, n = float(dev.max()), float(dev.std()), int(len(j))
+    log.info("Phase-5 inheritance check: max |log dev| = %.3g, sd = %.3g over "
+             "%d days (tolerance %.0e)", worst, spread, n, tol)
+    if worst > tol:
+        raise RuntimeError(
+            f"Phase-5 inheritance check FAILED: the dropout-off mixture does not "
+            f"reproduce '{BEST_OF_PHASE5}' in {profile_hint(base)}.\n"
+            f"  max |log deviation| = {worst:.4g} (sd {spread:.4g}) over {n} days, "
+            f"tolerance {tol:.0e}; worst day {j.index[int(np.argmax(dev))].date()}.\n"
+            f"A same-environment refit of this codebase reproduces to ~1e-6, so a "
+            f"deviation this large means the two artefacts were NOT produced by the "
+            f"same fit. The usual cause is that the Phase-5 predictions on disk were "
+            f"trained under a different interpreter or library set from the one "
+            f"running now (audit vii, 2026-08-23), or that the Phase-4 regime parquet "
+            f"changed after Phase 5 was trained.\n"
+            f"Fix: re-run Phases 2 -> 7 in one session under a single environment, "
+            f"then re-tag. Compare the '_environment' block of the Phase-5 and "
+            f"Phase-7 snapshots in experiments/*/run_*/config.yaml.")
+    return worst
+
+
+def profile_hint(base: pd.DataFrame) -> str:
+    """Short human-readable identifier for a baseline frame, for error text."""
+    try:
+        return (f"the baseline predictions covering "
+                f"{base.index.min().date()} -> {base.index.max().date()}")
+    except Exception:  # pragma: no cover - non-datetime index
+        return "the baseline predictions"
+
+
 # --------------------------------------------------------------------------- #
 # Tables                                                                       #
 # --------------------------------------------------------------------------- #
@@ -617,6 +702,86 @@ def width_correction_verdict(
             "recommendation": rec, "sentence": s}
 
 
+def pooled_view_verdict(
+    diff_pooled: pd.DataFrame, diff_upper: pd.DataFrame, *, alpha: float = 0.05
+) -> dict:
+    """Is the pooled two-sided coverage view enough, or does it hide structure?
+
+    Why this is a function and not a sentence -- audits vii / viii
+    -------------------------------------------------------------
+    The note used to answer this from an **argmax**: if the upper and lower
+    tails peaked in the same state it printed *"the pooled view captures the
+    structure adequately here"*, and otherwise printed the opposite. Neither
+    branch tested anything, and on the headline profile the claim was refuted by
+    its own document -- 0 of 16 pooled subsample differences survive Holm
+    against 5 of 16 on the upper tail, so the pooled view demonstrably sees
+    less. Fifth defect of one family: a hardcoded conclusion, a shadowed loop
+    variable printing lambda=300, an untested "non-monotone", a width verdict
+    that contradicted itself, and this.
+
+    Adequacy is a claim about the *tests*, so decide it from the tests: how many
+    subsample coverage differences survive family-wise control on each side.
+    Four cases, four honest readings, with the counts printed alongside so a
+    reader can check the arithmetic. The fourth -- neither side finding anything
+    -- makes **no** adequacy claim in either direction, which is exactly the
+    branch the argmax version could not express.
+
+    Parameters
+    ----------
+    diff_pooled, diff_upper : the ``difference in coverage`` rows of the
+        conditional-tests table for ``side="both"`` and ``side="upper"``, at one
+        nominal level. Only ``p_holm`` is read. Empty or ``None`` counts as zero
+        tests, which lands in the "no structure either way" branch.
+
+    Returns
+    -------
+    dict with ``verdict`` (one of ``pooled understates`` / ``pooled is sharper``
+    / ``views agree`` / ``no structure either way``), the four counts, and
+    ``sentence`` -- the rendered claim, which always carries its own evidence.
+    """
+    def _counts(df) -> tuple[int, int]:
+        if df is None or not len(df):
+            return 0, 0
+        return int((df["p_holm"] < alpha).sum()), int(len(df))
+
+    up_sig, up_n = _counts(diff_upper)
+    po_sig, po_n = _counts(diff_pooled)
+    counts = (f"**{po_sig} of {po_n}** pooled and **{up_sig} of {up_n}** "
+              f"upper-tail")
+
+    if up_sig > po_sig:
+        verdict = "pooled understates"
+        sentence = (
+            "Whether the pooled two-sided view is enough is a question about the "
+            "tests rather than about which state each argmax lands in — and here "
+            f"it is not enough: {counts} subsample coverage differences survive "
+            "Holm. Pooling nets the two tails against each other and sees less "
+            "structure than the one-sided view, which is why both are reported.")
+    elif po_sig > up_sig:
+        verdict = "pooled is sharper"
+        sentence = (
+            "On the tests the pooled two-sided view is the sharper of the two "
+            f"here: {counts} subsample coverage differences survive Holm, so the "
+            "structure is not confined to one tail.")
+    elif up_sig > 0:
+        verdict = "views agree"
+        sentence = (
+            f"The two views agree on the tests — {counts} subsample coverage "
+            "differences survive Holm — so the pooled table loses nothing the "
+            "one-sided tables find.")
+    else:
+        verdict = "no structure either way"
+        sentence = (
+            "Neither view finds subsample structure that survives family-wise "
+            f"control ({counts} differences survive Holm), so the ordering above "
+            "is descriptive only and no adequacy claim is made in either "
+            "direction.")
+
+    return {"verdict": verdict, "sentence": sentence, "alpha": float(alpha),
+            "n_pooled_significant": po_sig, "n_pooled": po_n,
+            "n_upper_significant": up_sig, "n_upper": up_n}
+
+
 def write_milestone(ctx: dict, out_path: Path) -> Path:
     """Generate ``m07_combined.md``.
 
@@ -691,6 +856,10 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     diff_up = con[(con["kind"] == "difference in coverage") & (con["side"] == "upper")
                   & (con["nominal_level"] == level)]
     diff_up_sig = diff_up[diff_up["p_holm"] < 0.05] if len(diff_up) else diff_up
+    # The pooled counterpart, needed so the tail section can decide whether the
+    # two-sided view is adequate from the TESTS rather than from an argmax.
+    diff_both = con[(con["kind"] == "difference in coverage") & (con["side"] == "both")
+                    & (con["nominal_level"] == level)]
 
     p.append("### Verdict, computed from the tables below\n")
     p.append(f"| clause | expected | found |\n|---|---|---|")
@@ -831,14 +1000,16 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
                  f"{nom1:.3f}); the **lower** tail breaks most often in "
                  f"**{worst_dn['regime']}** "
                  f"({worst_dn['lower_violation_rate']:.4f}). ")
-        if worst_up["regime"] != worst_dn["regime"]:
-            p.append("Because the two tails move in *opposite* directions across "
-                     "states, the pooled two-sided view nets them out and sees "
-                     "less structure than there is — which is why the one-sided "
-                     "tests are reported alongside it rather than instead of it.\n")
-        else:
-            p.append("Both tails are worst in the same state, so the pooled view "
-                     "captures the structure adequately here.\n")
+        # Descriptive fact first -- which states the two tails peak in -- then
+        # the claim, which is decided from the tests. Keeping those two separate
+        # is the fix for audit vii's prose defect: an argmax cannot license a
+        # statement about whether the pooled view is adequate.
+        p.append("The two tails peak in the **same** state. "
+                 if worst_up["regime"] == worst_dn["regime"]
+                 else "The two tails peak in **different** states. ")
+        pv = pooled_view_verdict(diff_both, diff_up)
+        ctx["pooled_view_verdict"] = pv
+        p.append(pv["sentence"] + "\n")
         if len(diff_up_sig):
             p.append("\nUpper-tail coverage differences surviving Holm:\n")
             for _, r in diff_up_sig.iterrows():
@@ -890,13 +1061,19 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
             p.append(" " + ctx["width_verdict"]["sentence"] + "\n")
 
     p.append("\n## Reproduce\n")
-    p.append("```\npython -m src.experiments.run_combined"
-             + (f" --config {ctx['config_name']}" if ctx.get("config_name") != "combined" else "")
+    # Every command here must be runnable as printed. Two things this block used
+    # to get wrong: the --from-predictions line dropped --config, so running it
+    # from the comparator's note rebuilt the HEADLINE tables; and the
+    # report_coverage line passed a bare filename, which `repo_path` resolves
+    # against the repo root and so cannot exist.
+    cfg_flag = (f" --config {ctx['config_name']}"
+                if ctx.get("config_name") not in (None, "combined") else "")
+    pred_rel = f"results/predictions/{ctx['pred_path'].name}"
+    p.append("```\npython -m src.experiments.run_combined" + cfg_flag
              + "\n# tables only, from the persisted forecasts (seconds, no training):\n"
-             "python -m src.experiments.run_combined --from-predictions\n"
+             f"python -m src.experiments.run_combined{cfg_flag} --from-predictions\n"
              "# the coverage tests alone, against any UQ predictions file:\n"
-             "python -m src.experiments.report_coverage --predictions "
-             f"{ctx['pred_path'].name}\n```\n")
+             f"python -m src.experiments.report_coverage --predictions {pred_rel}\n```\n")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(p), encoding="utf-8")
@@ -986,6 +1163,10 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
 
     base = from_parquet(repo_path(profile.baseline_predictions))
     uqp = from_parquet(repo_path(profile.uq_predictions))
+
+    # The claim this phase rests on, checked against the artefacts rather than
+    # asserted (audit vii). Raises if the combined model is not the Phase-5 one.
+    assert_inherits_phase5_training(preds, base)
 
     master = master_table(preds, base, uqp, reg_full, labels, level=headline_level)
     cal = calibration_table(preds, uqp, levels)

@@ -74,8 +74,22 @@ results/logs/**
 !results/figures/.gitkeep
 !results/logs/.gitkeep
 
-# Experiment run dirs
-experiments/**/run_*/
+# Experiment run dirs.
+#
+# The resolved-config snapshot of every run IS tracked (changed 2026-08-24,
+# audit viii). `snapshot_config` now writes an `_environment` block -- python,
+# platform, torch/numpy/pandas/scipy/sklearn/arch/hmmlearn/statsmodels -- into
+# each `config.yaml`, and that record is worthless if a fresh checkout cannot
+# see it: the whole point is that the interpreter and library set behind every
+# committed artefact are auditable from the repo alone. 44 files, ~71 KB.
+#
+# Note the shape. Git cannot re-include a file whose PARENT DIRECTORY is
+# excluded, so `experiments/**/run_*/` followed by a negation would silently do
+# nothing. Exclude the directory's *contents*, then re-admit the directory and
+# the one file worth keeping.
+experiments/**/run_*/**
+!experiments/**/run_*/
+!experiments/**/run_*/config.yaml
 runs/
 
 # Model checkpoints

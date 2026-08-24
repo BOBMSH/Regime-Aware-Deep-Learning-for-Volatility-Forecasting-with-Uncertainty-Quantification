@@ -16,8 +16,8 @@ Recorded in `ROADMAP.md` **before** this phase was run: *Kupiec should reject de
 
 | clause | expected | found |
 |---|---|---|
-| Kupiec rejects (level is wrong) | yes | **yes** — MC-Dropout-Regime-LSTM-B p=0.00117; MC-Dropout-LSTM p=0.00171; LSTM-Gaussian p=0.00117; Quantile-LSTM p=2.31e-11 |
-| Christoffersen independence does *not* reject (no clustering) | yes | **yes** — MC-Dropout-Regime-LSTM-B p=0.416; MC-Dropout-LSTM p=0.843; LSTM-Gaussian p=0.909; Quantile-LSTM p=0.455 |
+| Kupiec rejects (level is wrong) | yes | **yes** — MC-Dropout-Regime-LSTM-B p=0.000798; MC-Dropout-LSTM p=0.00171; LSTM-Gaussian p=0.00117; Quantile-LSTM p=2.31e-11 |
+| Christoffersen independence does *not* reject (no clustering) | yes | **yes** — MC-Dropout-Regime-LSTM-B p=0.563; MC-Dropout-LSTM p=0.843; LSTM-Gaussian p=0.909; Quantile-LSTM p=0.455 |
 | no t−1 conditioner predicts a miss (pooled hit) | yes | **no conditioner survives Holm** |
 | no t−1 subsample differs in *upper-tail* coverage | (not pre-registered) | **0 of 16 survive Holm** |
 
@@ -28,8 +28,8 @@ Recorded in `ROADMAP.md` **before** this phase was run: *Kupiec should reject de
 
 | rank_qlike | model | family | qlike | qlike_transitional | mse | mae | picp | mpiw | winkler | crps | n |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | Regime-LSTM-B | regime-aware deep | 0.2583 | 0.1951 | 4.049e-08 | 5.334e-05 |  |  |  |  | 784 |
-| 2 | MC-Dropout-Regime-LSTM-B | combined (Phase 7) | 0.2585 | 0.1945 | 3.9e-08 | 5.33e-05 | 0.8635 | 0.0001825 | 0.000387 | 4.014e-05 | 784 |
+| 1 | MC-Dropout-Regime-LSTM-B | combined (Phase 7) | 0.2582 | 0.1951 | 4.055e-08 | 5.333e-05 | 0.8622 | 0.0001804 | 0.0003993 | 4.055e-05 | 784 |
+| 2 | Regime-LSTM-B | regime-aware deep | 0.2583 | 0.1951 | 4.049e-08 | 5.334e-05 |  |  |  |  | 784 |
 | 3 | LSTM-RVonly | deep | 0.2596 | 0.2331 | 4.021e-08 | 6.058e-05 |  |  |  |  | 784 |
 | 4 | Regime-LSTM-A-RVonly | regime-aware deep | 0.2617 | 0.2271 | 4.2e-08 | 6.507e-05 |  |  |  |  | 784 |
 | 5 | Regime-LSTM-A | regime-aware deep | 0.2627 | 0.2049 | 4.035e-08 | 5.813e-05 |  |  |  |  | 784 |
@@ -45,29 +45,29 @@ Recorded in `ROADMAP.md` **before** this phase was run: *Kupiec should reject de
 *`qlike_transitional` is the transitional bucket on the **t−1** label (lagged t-1 (conditional / implementable)), n=332. Interval columns are blank for models that produce no predictive distribution — that contrast is the point of the table.*
 
 
-Pooled, the best model on QLIKE is **Regime-LSTM-B** (0.2583); the combined model ranks **2 of 13** at 0.2585.
- Against the regime-agnostic `MC-Dropout-LSTM` (0.2652) that is a change of -0.0067 (-2.5%), and in the transitional bucket 0.1945 vs 0.2044.
+Pooled, the best model on QLIKE is **MC-Dropout-Regime-LSTM-B** (0.2582); the combined model ranks **1 of 13** at 0.2582.
+ Against the regime-agnostic `MC-Dropout-LSTM` (0.2652) that is a change of -0.0071 (-2.7%), and in the transitional bucket 0.1951 vs 0.2044.
 
 
 ## Significance on the Phase-7 pairs
 
 | model_a | model_b | dm_stat | p_value | mean_loss_diff | better | n |
 |---|---|---|---|---|---|---|
-| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | -2.1489 | 0.0319 | -0.006711 | MC-Dropout-Regime-LSTM-B | 784 |
-| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | 0.3177 | 0.7508 | 0.000208037 | Regime-LSTM-B | 784 |
-| MC-Dropout-Regime-LSTM-B | HAR-RV | -1.0155 | 0.3102 | -0.015968 | MC-Dropout-Regime-LSTM-B | 784 |
-| MC-Dropout-Regime-LSTM-B | LSTM | -2.0934 | 0.0366 | -0.006497 | MC-Dropout-Regime-LSTM-B | 784 |
-| MC-Dropout-LSTM | LSTM | 1.3159 | 0.1886 | 0.000214014 | LSTM | 784 |
+| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | -2.2203 | 0.0267 | -0.007050 | MC-Dropout-Regime-LSTM-B | 784 |
+| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | -1.2500 | 0.2117 | -0.000130965 | MC-Dropout-Regime-LSTM-B | 784 |
+| MC-Dropout-Regime-LSTM-B | HAR-RV | -1.0497 | 0.2942 | -0.016307 | MC-Dropout-Regime-LSTM-B | 784 |
+| MC-Dropout-Regime-LSTM-B | LSTM | -2.1690 | 0.0304 | -0.006836 | MC-Dropout-Regime-LSTM-B | 784 |
+| MC-Dropout-LSTM | LSTM | 1.3159 | 0.1886 | 0.000214018 | LSTM | 784 |
 
 **Giacomini–White, conditional on the lagged regime indicator.** A negative moment means the first model has the lower loss in that state.
 
 | model_a | model_b | n | gw_regime_stat | gw_regime_df | gw_regime_p | moment_calm | moment_transitional | moment_crisis | a_relative_edge_in | a_wins_in |
 |---|---|---|---|---|---|---|---|---|---|---|
-| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | 784 | 9.0942 | 3 | 0.028065 | -0.001369 | -0.004193 | -0.001149 | transitional | calm, transitional, crisis |
-| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | 784 | 5.5340 | 3 | 0.136619 | 0.000563501 | -0.000249417 | -0.000106048 | transitional | transitional, crisis |
-| MC-Dropout-Regime-LSTM-B | HAR-RV | 784 | 23.3860 | 3 | 3.3552e-05 | 0.004487 | -0.019651 | -0.000803506 | transitional | transitional, crisis |
-| MC-Dropout-Regime-LSTM-B | LSTM | 784 | 8.6813 | 3 | 0.033842 | -0.001250 | -0.004161 | -0.001086 | transitional | calm, transitional, crisis |
-| MC-Dropout-LSTM | LSTM | 784 | 1.7099 | 3 | 0.634726 | 0.000118863 | 3.20498e-05 | 6.31017e-05 | transitional | none |
+| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | 784 | 9.5807 | 3 | 0.022489 | -0.002080 | -0.003924 | -0.001046 | transitional | calm, transitional, crisis |
+| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | 784 | 3.0358 | 3 | 0.386145 | -0.000148211 | 1.96362e-05 | -2.3896e-06 | calm | calm, crisis |
+| MC-Dropout-Regime-LSTM-B | HAR-RV | 784 | 24.1874 | 3 | 2.28275e-05 | 0.003775 | -0.019382 | -0.00069985 | transitional | transitional, crisis |
+| MC-Dropout-Regime-LSTM-B | LSTM | 784 | 9.1587 | 3 | 0.027253 | -0.001962 | -0.003892 | -0.000982456 | transitional | calm, transitional, crisis |
+| MC-Dropout-LSTM | LSTM | 784 | 1.7100 | 3 | 0.634702 | 0.000118863 | 3.20491e-05 | 6.31057e-05 | transitional | none |
 
 ## RQ3, made inferential — coverage tests on the full 784-day sample
 
@@ -79,14 +79,14 @@ Every regressor is lagged into the t−1 information set, and every test runs on
 
 | method | side | test | stat | df | p_value | violation_rate | expected_violation_rate | n |
 |---|---|---|---|---|---|---|---|---|
-| MC-Dropout-Regime-LSTM-B | both | Kupiec LR_uc | 10.530 | 1 | 0.00117 | 0.1365 | 0.1000 | 784 |
-| MC-Dropout-Regime-LSTM-B | both | Christoffersen LR_ind | 0.660 | 1 | 0.41644 | 0.1365 | 0.1000 | 784 |
-| MC-Dropout-Regime-LSTM-B | both | Christoffersen LR_cc | 11.191 | 2 | 0.00372 | 0.1365 | 0.1000 | 784 |
-| MC-Dropout-Regime-LSTM-B | both | Engle-Manganelli DQ | 15.136 | 5 | 0.00980 | 0.1365 | 0.1000 | 784 |
-| MC-Dropout-Regime-LSTM-B | upper | Kupiec LR_uc | 13.982 | 1 | 0.00018462 | 0.0816 | 0.0500 | 784 |
-| MC-Dropout-Regime-LSTM-B | upper | Christoffersen LR_ind | 0.129 | 1 | 0.71954 | 0.0816 | 0.0500 | 784 |
-| MC-Dropout-Regime-LSTM-B | upper | Christoffersen LR_cc | 14.110 | 2 | 0.00086289 | 0.0816 | 0.0500 | 784 |
-| MC-Dropout-Regime-LSTM-B | upper | Engle-Manganelli DQ | 25.828 | 5 | 9.6378e-05 | 0.0816 | 0.0500 | 784 |
+| MC-Dropout-Regime-LSTM-B | both | Kupiec LR_uc | 11.246 | 1 | 0.00079802 | 0.1378 | 0.1000 | 784 |
+| MC-Dropout-Regime-LSTM-B | both | Christoffersen LR_ind | 0.335 | 1 | 0.56253 | 0.1378 | 0.1000 | 784 |
+| MC-Dropout-Regime-LSTM-B | both | Christoffersen LR_cc | 11.581 | 2 | 0.00306 | 0.1378 | 0.1000 | 784 |
+| MC-Dropout-Regime-LSTM-B | both | Engle-Manganelli DQ | 16.182 | 5 | 0.00634 | 0.1378 | 0.1000 | 784 |
+| MC-Dropout-Regime-LSTM-B | upper | Kupiec LR_uc | 15.047 | 1 | 0.00010489 | 0.0829 | 0.0500 | 784 |
+| MC-Dropout-Regime-LSTM-B | upper | Christoffersen LR_ind | 0.527 | 1 | 0.46803 | 0.0829 | 0.0500 | 784 |
+| MC-Dropout-Regime-LSTM-B | upper | Christoffersen LR_cc | 15.573 | 2 | 0.00041526 | 0.0829 | 0.0500 | 784 |
+| MC-Dropout-Regime-LSTM-B | upper | Engle-Manganelli DQ | 31.142 | 5 | 8.7812e-06 | 0.0829 | 0.0500 | 784 |
 | MC-Dropout-LSTM | both | Kupiec LR_uc | 9.836 | 1 | 0.00171 | 0.1352 | 0.1000 | 784 |
 | MC-Dropout-LSTM | both | Christoffersen LR_ind | 0.039 | 1 | 0.84349 | 0.1352 | 0.1000 | 784 |
 | MC-Dropout-LSTM | both | Christoffersen LR_cc | 9.875 | 2 | 0.00717 | 0.1352 | 0.1000 | 784 |
@@ -116,20 +116,20 @@ Every regressor is lagged into the t−1 information set, and every test runs on
 
 | method | side | kind | conditioner | stat | df | p_value | p_holm | n | detail |
 |---|---|---|---|---|---|---|---|---|---|
-| MC-Dropout-Regime-LSTM-B | both | DQ incremental | regime | 7.179 | 2 | 0.02761 | 0.19324 | 780 | DQ_full=22.315 (df 7, p=0.002241) vs DQ_level+dynamics=15.136 (df 5, p=0.009798) |
-| MC-Dropout-Regime-LSTM-B | both | DQ incremental | transition | 0.431 | 1 | 0.51143 | 1.00000 | 780 | DQ_full=15.567 (df 6, p=0.01628) vs DQ_level+dynamics=15.136 (df 5, p=0.009798) |
-| MC-Dropout-Regime-LSTM-B | both | DQ incremental | width | 1.329 | 1 | 0.24892 | 0.99567 | 780 | DQ_full=16.465 (df 6, p=0.01146) vs DQ_level+dynamics=15.136 (df 5, p=0.009798) |
-| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime=calm | 2.152 |  | 0.03143 | 0.19324 | 784 | PICP 0.8373 (n=381) vs 0.8883 (n=403); z_iid=2.082 p_iid=0.03737 |
-| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime=transitional | -1.125 |  | 0.26061 | 0.99567 | 784 | PICP 0.8795 (n=332) vs 0.8518 (n=452); z_iid=-1.118 p_iid=0.2635 |
-| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime=crisis | -1.796 |  | 0.07248 | 0.36241 | 784 | PICP 0.9296 (n=71) vs 0.8569 (n=713); z_iid=-1.700 p_iid=0.0891 |
-| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime transition (ex-ante) | 0.358 |  | 0.72046 | 1.00000 | 784 | PICP 0.8475 (n=59) vs 0.8648 (n=725); z_iid=0.374 p_iid=0.7086 |
-| MC-Dropout-Regime-LSTM-B | upper | DQ incremental | regime | 6.856 | 2 | 0.03246 | 0.22720 | 780 | DQ_full=32.683 (df 7, p=3.033e-05) vs DQ_level+dynamics=25.828 (df 5, p=9.638e-05) |
-| MC-Dropout-Regime-LSTM-B | upper | DQ incremental | transition | 0.476 | 1 | 0.49026 | 1.00000 | 780 | DQ_full=26.303 (df 6, p=0.0001954) vs DQ_level+dynamics=25.828 (df 5, p=9.638e-05) |
-| MC-Dropout-Regime-LSTM-B | upper | DQ incremental | width | 1.801 | 1 | 0.17958 | 0.71831 | 780 | DQ_full=27.629 (df 6, p=0.0001104) vs DQ_level+dynamics=25.828 (df 5, p=9.638e-05) |
-| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime=calm | 2.135 |  | 0.03277 | 0.22720 | 784 | PICP 0.8976 (n=381) vs 0.9380 (n=403); z_iid=2.061 p_iid=0.03929 |
-| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime=transitional | -1.733 |  | 0.08310 | 0.41548 | 784 | PICP 0.9367 (n=332) vs 0.9049 (n=452); z_iid=-1.611 p_iid=0.1072 |
-| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime=crisis | -0.699 |  | 0.48448 | 1.00000 | 784 | PICP 0.9437 (n=71) vs 0.9158 (n=713); z_iid=-0.816 p_iid=0.4143 |
-| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime transition (ex-ante) | 0.551 |  | 0.58164 | 1.00000 | 784 | PICP 0.8983 (n=59) vs 0.9200 (n=725); z_iid=0.585 p_iid=0.5584 |
+| MC-Dropout-Regime-LSTM-B | both | DQ incremental | regime | 5.905 | 2 | 0.05222 | 0.31331 | 780 | DQ_full=22.087 (df 7, p=0.002455) vs DQ_level+dynamics=16.182 (df 5, p=0.006343) |
+| MC-Dropout-Regime-LSTM-B | both | DQ incremental | transition | 1.057 | 1 | 0.30398 | 0.98060 | 780 | DQ_full=17.239 (df 6, p=0.008445) vs DQ_level+dynamics=16.182 (df 5, p=0.006343) |
+| MC-Dropout-Regime-LSTM-B | both | DQ incremental | width | 0.827 | 1 | 0.36302 | 0.98060 | 780 | DQ_full=17.009 (df 6, p=0.009249) vs DQ_level+dynamics=16.182 (df 5, p=0.006343) |
+| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime=calm | 2.013 |  | 0.04414 | 0.30900 | 784 | PICP 0.8373 (n=381) vs 0.8859 (n=403); z_iid=1.973 p_iid=0.04851 |
+| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime=transitional | -1.215 |  | 0.22456 | 0.98060 | 784 | PICP 0.8795 (n=332) vs 0.8496 (n=452); z_iid=-1.203 p_iid=0.2291 |
+| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime=crisis | -1.293 |  | 0.19612 | 0.98060 | 784 | PICP 0.9155 (n=71) vs 0.8569 (n=713); z_iid=-1.365 p_iid=0.1722 |
+| MC-Dropout-Regime-LSTM-B | both | difference in coverage | regime transition (ex-ante) | 0.614 |  | 0.53932 | 0.98060 | 784 | PICP 0.8305 (n=59) vs 0.8648 (n=725); z_iid=0.736 p_iid=0.462 |
+| MC-Dropout-Regime-LSTM-B | upper | DQ incremental | regime | 6.332 | 2 | 0.04218 | 0.29525 | 780 | DQ_full=37.474 (df 7, p=3.814e-06) vs DQ_level+dynamics=31.142 (df 5, p=8.781e-06) |
+| MC-Dropout-Regime-LSTM-B | upper | DQ incremental | transition | 1.351 | 1 | 0.24514 | 0.90869 | 780 | DQ_full=32.493 (df 6, p=1.312e-05) vs DQ_level+dynamics=31.142 (df 5, p=8.781e-06) |
+| MC-Dropout-Regime-LSTM-B | upper | DQ incremental | width | 1.458 | 1 | 0.22717 | 0.90869 | 780 | DQ_full=32.601 (df 6, p=1.251e-05) vs DQ_level+dynamics=31.142 (df 5, p=8.781e-06) |
+| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime=calm | 1.932 |  | 0.05338 | 0.32026 | 784 | PICP 0.8976 (n=381) vs 0.9355 (n=403); z_iid=1.921 p_iid=0.05476 |
+| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime=transitional | -1.851 |  | 0.06411 | 0.32057 | 784 | PICP 0.9367 (n=332) vs 0.9027 (n=452); z_iid=-1.711 p_iid=0.08717 |
+| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime=crisis | -0.305 |  | 0.76062 | 0.90869 | 784 | PICP 0.9296 (n=71) vs 0.9158 (n=713); z_iid=-0.400 p_iid=0.6891 |
+| MC-Dropout-Regime-LSTM-B | upper | difference in coverage | regime transition (ex-ante) | 0.786 |  | 0.43191 | 0.90869 | 784 | PICP 0.8814 (n=59) vs 0.9200 (n=725); z_iid=1.035 p_iid=0.3006 |
 | MC-Dropout-LSTM | both | DQ incremental | regime | 2.456 | 2 | 0.29292 | 1.00000 | 780 | DQ_full=16.710 (df 7, p=0.01937) vs DQ_level+dynamics=14.254 (df 5, p=0.01407) |
 | MC-Dropout-LSTM | both | DQ incremental | transition | 0.237 | 1 | 0.62647 | 1.00000 | 780 | DQ_full=14.491 (df 6, p=0.02461) vs DQ_level+dynamics=14.254 (df 5, p=0.01407) |
 | MC-Dropout-LSTM | both | DQ incremental | width | 0.177 | 1 | 0.67426 | 1.00000 | 780 | DQ_full=14.431 (df 6, p=0.02518) vs DQ_level+dynamics=14.254 (df 5, p=0.01407) |
@@ -180,29 +180,30 @@ Every regressor is lagged into the t−1 information set, and every test runs on
 
 | regime_shift | timing | regime | n | mpiw | mean_log_width | mean_sigma_log | epistemic_share | mean_gate_entropy | upper_violation_rate | lower_violation_rate | expected_one_sided_rate |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | lagged t-1 (conditional / implementable) | calm | 381 | 5.0062e-05 | 1.9599 | 0.5958 | 0.00434 | 0.3140 | 0.1024 | 0.0604 | 0.05 |
-| 1 | lagged t-1 (conditional / implementable) | transitional | 332 | 0.000158873 | 1.9573 | 0.5950 | 0.00163 | 0.4433 | 0.0633 | 0.0572 | 0.05 |
-| 1 | lagged t-1 (conditional / implementable) | crisis | 71 | 0.001004 | 1.9722 | 0.5995 | 0.01680 | 0.2925 | 0.0563 | 0.0141 | 0.05 |
-| 1 | lagged t-1 (conditional / implementable) | all | 784 | 0.00018252 | 1.9599 | 0.5958 | 0.00434 | 0.3668 | 0.0816 | 0.0548 | 0.05 |
+| 1 | lagged t-1 (conditional / implementable) | calm | 381 | 5.03381e-05 | 1.9637 | 0.5969 | 0.00453 | 0.3140 | 0.1024 | 0.0604 | 0.05 |
+| 1 | lagged t-1 (conditional / implementable) | transitional | 332 | 0.000158299 | 1.9607 | 0.5960 | 0.00153 | 0.4433 | 0.0633 | 0.0572 | 0.05 |
+| 1 | lagged t-1 (conditional / implementable) | crisis | 71 | 0.000982104 | 1.9741 | 0.6001 | 0.01503 | 0.2925 | 0.0704 | 0.0141 | 0.05 |
+| 1 | lagged t-1 (conditional / implementable) | all | 784 | 0.000180438 | 1.9634 | 0.5968 | 0.00422 | 0.3668 | 0.0829 | 0.0548 | 0.05 |
 
 The **upper** tail — realized variance above the band, i.e. the day the model understated risk — breaks most often in the **calm** state (0.1024 against a nominal 0.050); the **lower** tail breaks most often in **calm** (0.0604). 
-Both tails are worst in the same state, so the pooled view captures the structure adequately here.
+The two tails peak in the **same** state. 
+Neither view finds subsample structure that survives family-wise control (**0 of 16** pooled and **0 of 16** upper-tail differences survive Holm), so the ordering above is descriptive only and no adequacy claim is made in either direction.
 
 
-**Does the gate widen the band where the regime is ambiguous?** Mean gate entropy ranges 0.292–0.443 nats across states (max possible 1.099), and the epistemic share of predictive variance ranges 0.16%–1.68%. Since the epistemic term is a small fraction of the total everywhere, the gate cannot move the interval width much even where it is maximally uncertain — this is the mechanism behind the combined model being a null on calibration.
+**Does the gate widen the band where the regime is ambiguous?** Mean gate entropy ranges 0.292–0.443 nats across states (max possible 1.099), and the epistemic share of predictive variance ranges 0.15%–1.50%. Since the epistemic term is a small fraction of the total everywhere, the gate cannot move the interval width much even where it is maximally uncertain — this is the mechanism behind the combined model being a null on calibration.
 
 
 ## The deliverable: a width correction
 
 | regime_shift | timing | scope | n | nominal | picp_at_fitted_sigma | crps_at_fitted_sigma | coverage_calibrating_scale | picp_at_calibrating_scale | crps_optimal_scale | crps_at_optimal_scale | crps_plateau_lo | crps_plateau_hi |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | lagged t-1 (conditional / implementable) | all | 784 | 0.9 | 0.8635 | 4.0142733e-05 | 1.11 | 0.9018 | 1.15 | 3.9967803e-05 | 1.08 | 1.22 |
-| 1 | lagged t-1 (conditional / implementable) | calm | 381 | 0.9 | 0.8373 | 1.3098719e-05 | 1.22 | 0.8976 | 1.28 | 1.2930927e-05 | 1.21 | 1.36 |
-| 1 | lagged t-1 (conditional / implementable) | transitional | 332 | 0.9 | 0.8795 | 3.0125088e-05 | 1.04 | 0.9006 | 1.11 | 3.0035896e-05 | 1.05 | 1.17 |
-| 1 | lagged t-1 (conditional / implementable) | crisis | 71 | 0.9 | 0.9296 | 0.00023210932 | 0.91 | 0.9014 | 1.15 | 0.00023124404 | 1.07 | 1.22 |
+| 1 | lagged t-1 (conditional / implementable) | all | 784 | 0.9 | 0.8622 | 4.0547394e-05 | 1.11 | 0.9018 | 1.17 | 4.0334342e-05 | 1.10 | 1.24 |
+| 1 | lagged t-1 (conditional / implementable) | calm | 381 | 0.9 | 0.8373 | 1.3080587e-05 | 1.23 | 0.9003 | 1.28 | 1.2919333e-05 | 1.20 | 1.35 |
+| 1 | lagged t-1 (conditional / implementable) | transitional | 332 | 0.9 | 0.8795 | 3.0206209e-05 | 1.04 | 0.9006 | 1.11 | 3.0112294e-05 | 1.05 | 1.17 |
+| 1 | lagged t-1 (conditional / implementable) | crisis | 71 | 0.9 | 0.9155 | 0.00023629566 | 0.90 | 0.9014 | 1.18 | 0.00023500707 | 1.11 | 1.26 |
 
-Globally, σ × **1.11** brings coverage to 0.9018 against a 90% nominal, and σ × **1.15** minimises CRPS (plateau 1.08–1.22, so quote it as approximate).
- Per-regime coverage-calibrating scales span 0.91–1.22 (spread 0.31), which looks material — but the coverage tests find no t−1 conditioner that predicts a miss once the level is accounted for and the family-wise rate controlled. These scales are point estimates with no standard error attached, on buckets as small as the crisis one, so the spread is **not** evidence of regime-dependent miscalibration. **The defensible deliverable is the global scale**, with the per-regime column reported as indicative and explicitly untested.
+Globally, σ × **1.11** brings coverage to 0.9018 against a 90% nominal, and σ × **1.17** minimises CRPS (plateau 1.10–1.24, so quote it as approximate).
+ Per-regime coverage-calibrating scales span 0.90–1.23 (spread 0.33), which looks material — but the coverage tests find no t−1 conditioner that predicts a miss once the level is accounted for and the family-wise rate controlled. These scales are point estimates with no standard error attached, on buckets as small as the crisis one, so the spread is **not** evidence of regime-dependent miscalibration. **The defensible deliverable is the global scale**, with the per-regime column reported as indicative and explicitly untested.
 
 
 ## Reproduce
@@ -210,7 +211,7 @@ Globally, σ × **1.11** brings coverage to 0.9018 against a 90% nominal, and σ
 ```
 python -m src.experiments.run_combined --config combined_hmm
 # tables only, from the persisted forecasts (seconds, no training):
-python -m src.experiments.run_combined --from-predictions
+python -m src.experiments.run_combined --config combined_hmm --from-predictions
 # the coverage tests alone, against any UQ predictions file:
-python -m src.experiments.report_coverage --predictions m07_combined_intraday_2019_2022_hmm.parquet
+python -m src.experiments.report_coverage --predictions results/predictions/m07_combined_intraday_2019_2022_hmm.parquet
 ```
