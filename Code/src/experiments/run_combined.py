@@ -92,7 +92,7 @@ from src.evaluation.significance import (
     regime_test_function,
 )
 from src.experiments.report_coverage import conditional_table, unconditional_table
-from src.experiments.run_uq import run_uq_walk_forward
+from src.experiments.run_uq import add_quantile_mean_column, run_uq_walk_forward
 from src.models.deep import MCDropoutRegimeExpertForecaster
 from src.utils.config import load_config, repo_path, snapshot_config
 from src.utils.io import ensure_dir, from_parquet, to_parquet
@@ -107,6 +107,9 @@ COMBINED_NAME = "MC-Dropout-Regime-LSTM-B"
 MC_NAME = "MC-Dropout-LSTM"
 Q_NAME = "Quantile-LSTM"
 GAUSS_NAME = "LSTM-Gaussian"
+#: Mean-scale retransformation of Q_NAME. Defined in run_uq (which builds it);
+#: imported here so the two modules cannot disagree about the column name.
+Q_MEAN_NAME = "Quantile-LSTM-mean"
 #: The Phase-5 architecture Phase 7 combines with MC-Dropout, and the rule that
 #: picked it. Kept as a constant so the milestone cannot describe a different
 #: choice from the one the code made.
@@ -287,6 +290,17 @@ def master_table(preds: pd.DataFrame, base: pd.DataFrame, uqp: pd.DataFrame,
     predictive distribution, PICP / MPIW / Winkler / CRPS at the headline level.
     Models without intervals get NaN there rather than being dropped -- the
     comparison is the point of the table.
+
+    Ranked rows vs sensitivity rows (2026-08-30)
+    --------------------------------------------
+    ``rank_qlike`` is assigned to competing *models* only. ``Quantile-LSTM-mean``
+    is the same forecast as ``Quantile-LSTM`` under the mean-scale
+    retransformation every other deep model already receives (see
+    ``run_uq.add_quantile_mean_column``), so ranking it as a rival would both
+    imply a model competes with itself and silently shift every published rank
+    below it. It carries ``rank_qlike = NaN`` and the family
+    ``sensitivity (retransformed point)``: visible in the gate artefact, quoted in
+    Chapter 4, counted in no ranking.
     """
     y = preds[ACTUAL_COL].astype(float)
     lagged = align_regime_label(reg_state, y.index, shift=DEFAULT_REGIME_SHIFT,
@@ -329,11 +343,12 @@ def master_table(preds: pd.DataFrame, base: pd.DataFrame, uqp: pd.DataFrame,
         return bits
 
     def _row(name: str, point: pd.Series, frame: pd.DataFrame | None,
-             method: str | None, family: str) -> dict:
+             method: str | None, family: str, *, ranked: bool = True) -> dict:
         j = pd.concat([y.rename("y"), point.rename("h")], axis=1, join="inner").dropna()
         pm = point_metrics(j["y"], j["h"])
         m = lagged.reindex(j.index) == 1.0
-        rec = {"model": name, "family": family, "n": int(pm["n"]),
+        rec = {"model": name, "family": family, "ranked": bool(ranked),
+               "n": int(pm["n"]),
                "qlike": pm["qlike"], "mse": pm["mse"], "mae": pm["mae"],
                "qlike_transitional": (qlike(j["y"][m], j["h"][m])
                                       if int(m.sum()) > 0 else np.nan),
@@ -354,11 +369,20 @@ def master_table(preds: pd.DataFrame, base: pd.DataFrame, uqp: pd.DataFrame,
             rows.append(_row(c, fr[c], fr, c, "uncertainty-aware deep"))
     rows.append(_row(COMBINED_NAME, preds[COMBINED_NAME], preds, COMBINED_NAME,
                      "combined (Phase 7)"))
+    # Sensitivity row: the same quantile forecast on the mean scale QLIKE
+    # elicits. Unranked -- see the docstring.
+    if Q_MEAN_NAME in uqp.columns:
+        rows.append(_row(Q_MEAN_NAME, uqp[Q_MEAN_NAME], None, None,
+                         "sensitivity (retransformed point)", ranked=False))
 
     out = pd.DataFrame(rows).sort_values("qlike").reset_index(drop=True)
-    out.insert(0, "rank_qlike", np.arange(1, len(out) + 1))
+    rank = pd.Series(np.nan, index=out.index, dtype="float")
+    is_ranked = out["ranked"].to_numpy(dtype=bool)
+    rank[is_ranked] = np.arange(1, int(is_ranked.sum()) + 1)
+    out.insert(0, "rank_qlike", rank)
     out.attrs["regime_shift"] = int(DEFAULT_REGIME_SHIFT)
     out.attrs["level"] = float(level)
+    out.attrs["n_ranked_models"] = int(is_ranked.sum())
     return out
 
 
@@ -919,12 +943,25 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
              f"blank for models that produce no predictive distribution — that "
              f"contrast is the point of the table.*\n")
 
-    best_q = master.iloc[0]
+    ranked = master[master["ranked"]]
+    n_ranked = int(len(ranked))
+    if (~master["ranked"]).any():
+        _s = master[~master["ranked"]]
+        p.append(
+            f"\n*Rows with a blank `rank_qlike` are sensitivities, not competitors: "
+            f"{', '.join(f'**{r.model}** ({r.qlike:.4f})' for r in _s.itertuples())}. "
+            f"`{Q_MEAN_NAME}` is the quantile model's own forecast retransformed onto "
+            f"the mean scale QLIKE elicits — the correction every other deep model in "
+            f"this table already carries — so it is the row to read when comparing the "
+            f"pinball head's point accuracy against the mean-scale models, and it "
+            f"competes with nothing. Ranks below count the {n_ranked} models only.*\n")
+
+    best_q = ranked.iloc[0]
     comb = master[master["model"] == COMBINED_NAME].iloc[0]
     mcrow = master[master["model"] == MC_NAME]
     p.append(f"\nPooled, the best model on QLIKE is **{best_q['model']}** "
              f"({best_q['qlike']:.4f}); the combined model ranks "
-             f"**{int(comb['rank_qlike'])} of {len(master)}** at "
+             f"**{int(comb['rank_qlike'])} of {n_ranked}** at "
              f"{comb['qlike']:.4f}.")
     if len(mcrow):
         mc = mcrow.iloc[0]
@@ -1163,6 +1200,10 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
 
     base = from_parquet(repo_path(profile.baseline_predictions))
     uqp = from_parquet(repo_path(profile.uq_predictions))
+    # Build the retransformed quantile point here rather than requiring the
+    # Phase-6 parquet to have been rewritten: it is a pure function of the
+    # persisted quantiles, and one implementation (run_uq's) serves both phases.
+    uqp = add_quantile_mean_column(uqp.copy())
 
     # The claim this phase rests on, checked against the artefacts rather than
     # asserted (audit vii). Raises if the combined model is not the Phase-5 one.

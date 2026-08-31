@@ -127,22 +127,50 @@ def point_metrics(y_true: ArrayLike, y_pred: ArrayLike) -> dict[str, float]:
 # --------------------------------------------------------------------------- #
 
 
+def _finite_interval(
+    *arrays: ArrayLike, what: str
+) -> tuple[np.ndarray, ...]:
+    """Coerce equal-shaped interval arrays to float and drop non-finite rows.
+
+    The point losses above drop non-finite pairs in :func:`_align`; before
+    2026-08-30 the interval metrics did not, and the asymmetry was a trap rather
+    than a saving. ``picp`` in particular compared ``NaN >= lower``, which is
+    ``False``, so a missing endpoint or a missing realisation was silently
+    scored as an interval **miss** — understating coverage by a plausible-looking
+    amount with no warning. That never fired on the ``.SPX`` panel, where every
+    series is complete over the 784 evaluation days, but RQ3 is entirely a
+    coverage question and Phase 8 introduces assets on other trading calendars,
+    which is exactly where a silent gap would appear.
+
+    All interval metrics now share one contract with the point losses: score the
+    rows where every input is finite, and raise if none are.
+    """
+    out = [np.asarray(a, dtype=float) for a in arrays]
+    shapes = {a.shape for a in out}
+    if len(shapes) != 1:
+        raise ValueError(f"{what} requires inputs of identical shape, got {shapes}")
+    mask = np.ones(out[0].shape, dtype=bool)
+    for a in out:
+        mask &= np.isfinite(a)
+    if not mask.any():
+        raise ValueError(f"no finite observations to score in {what}")
+    return tuple(a[mask] for a in out)
+
+
 def picp(y_true: ArrayLike, lower: ArrayLike, upper: ArrayLike) -> float:
-    """Prediction Interval Coverage Probability: fraction of truths inside [l, u]."""
-    yt = np.asarray(y_true, dtype=float)
-    lo = np.asarray(lower, dtype=float)
-    hi = np.asarray(upper, dtype=float)
-    if not (yt.shape == lo.shape == hi.shape):
-        raise ValueError("picp requires y_true, lower, upper of identical shape")
+    """Prediction Interval Coverage Probability: fraction of truths inside [l, u].
+
+    Scored on the rows where ``y_true``, ``lower`` and ``upper`` are all finite
+    (see :func:`_finite_interval`), so a gap is excluded from the denominator
+    rather than counted as a miss.
+    """
+    yt, lo, hi = _finite_interval(y_true, lower, upper, what="picp")
     return float(np.mean((yt >= lo) & (yt <= hi)))
 
 
 def mpiw(lower: ArrayLike, upper: ArrayLike) -> float:
-    """Mean Prediction Interval Width (sharpness)."""
-    lo = np.asarray(lower, dtype=float)
-    hi = np.asarray(upper, dtype=float)
-    if lo.shape != hi.shape:
-        raise ValueError("mpiw requires lower and upper of identical shape")
+    """Mean Prediction Interval Width (sharpness); non-finite rows dropped."""
+    lo, hi = _finite_interval(lower, upper, what="mpiw")
     return float(np.mean(hi - lo))
 
 
@@ -153,13 +181,10 @@ def winkler_score(
 
     Gneiting & Raftery (2007): a strictly proper interval score that rewards
     narrow intervals but penalises misses by ``2/alpha`` times the shortfall. For
-    a 95% interval pass ``alpha=0.05``. Lower is better.
+    a 95% interval pass ``alpha=0.05``. Lower is better. Non-finite rows are
+    dropped (see :func:`_finite_interval`).
     """
-    yt = np.asarray(y_true, dtype=float)
-    lo = np.asarray(lower, dtype=float)
-    hi = np.asarray(upper, dtype=float)
-    if not (yt.shape == lo.shape == hi.shape):
-        raise ValueError("winkler_score requires identical shapes")
+    yt, lo, hi = _finite_interval(y_true, lower, upper, what="winkler_score")
     width = hi - lo
     below = yt < lo
     above = yt > hi

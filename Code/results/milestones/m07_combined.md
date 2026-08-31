@@ -36,6 +36,7 @@ Recorded in `ROADMAP.md` **before** this phase was run: *Kupiec should reject de
 | 6 | LSTM-Gaussian | uncertainty-aware deep | 0.2650 | 0.1921 | 4.485e-08 | 5.863e-05 | 0.8635 | 0.0001801 | 0.0004198 | 4.306e-05 | 784 |
 | 7 | LSTM | deep | 0.2650 | 0.1921 | 4.485e-08 | 5.863e-05 |  |  |  |  | 784 |
 | 8 | MC-Dropout-LSTM | uncertainty-aware deep | 0.2652 | 0.1922 | 4.494e-08 | 5.874e-05 | 0.8648 | 0.0001818 | 0.0004199 | 4.306e-05 | 784 |
+|  | Quantile-LSTM-mean | sensitivity (retransformed point) | 0.2742 | 0.1909 | 4.42e-08 | 5.634e-05 |  |  |  |  | 784 |
 | 9 | HAR-RV | econometric | 0.2745 | 0.2367 | 4.176e-08 | 6.046e-05 |  |  |  |  | 784 |
 | 10 | Quantile-LSTM | uncertainty-aware deep | 0.3216 | 0.2087 | 5.131e-08 | 5.73e-05 | 0.8214 | 0.0001598 | 0.0004317 | 4.306e-05 | 784 |
 | 11 | GARCH | econometric | 0.3302 | 0.2863 | 5.625e-08 | 7.172e-05 |  |  |  |  | 784 |
@@ -43,6 +44,9 @@ Recorded in `ROADMAP.md` **before** this phase was run: *Kupiec should reject de
 | 13 | RW-RV | econometric | 0.3584 | 0.2664 | 5.284e-08 | 6.579e-05 |  |  |  |  | 784 |
 
 *`qlike_transitional` is the transitional bucket on the **t−1** label (lagged t-1 (conditional / implementable)), n=329. Interval columns are blank for models that produce no predictive distribution — that contrast is the point of the table.*
+
+
+*Rows with a blank `rank_qlike` are sensitivities, not competitors: **Quantile-LSTM-mean** (0.2742). `Quantile-LSTM-mean` is the quantile model's own forecast retransformed onto the mean scale QLIKE elicits — the correction every other deep model in this table already carries — so it is the row to read when comparing the pinball head's point accuracy against the mean-scale models, and it competes with nothing. Ranks below count the 13 models only.*
 
 
 Pooled, the best model on QLIKE is **LSTM-RVonly** (0.2596); the combined model ranks **3 of 13** at 0.2619.

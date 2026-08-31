@@ -206,3 +206,84 @@ class TestPooledViewVerdict:
         assert pooled_view_verdict(_diff([1.0]), borderline)["n_upper_significant"] == 1
         assert pooled_view_verdict(_diff([1.0]), borderline,
                                    alpha=0.01)["n_upper_significant"] == 0
+
+
+class TestQuantileMeanColumn:
+    """The retransformed quantile point — defect (5) of the generated-prose family.
+
+    Not a wording bug this time but its mirror image: the m06 note *stated* the
+    median-vs-mean caveat correctly in prose while the master table ranked the
+    uncorrected point among mean-scale models with no number attached. A caveat
+    with no measurement behind it is the same failure mode as a claim with no
+    test behind it, so the correction is now computed, and pinned here.
+    """
+
+    @staticmethod
+    def _frame(n=64, seed=3):
+        rng = np.random.default_rng(seed)
+        idx = pd.bdate_range("2019-01-02", periods=n)
+        med = np.exp(rng.normal(-9.2, 0.4, n))
+        sigma = 0.55
+        from scipy.stats import norm
+        return pd.DataFrame(
+            {
+                "y_true": med * np.exp(rng.normal(0, sigma, n)),
+                "Quantile-LSTM": med,
+                "Quantile-LSTM_lo90": med * np.exp(norm.ppf(0.05) * sigma),
+                "Quantile-LSTM_hi90": med * np.exp(norm.ppf(0.95) * sigma),
+            },
+            index=idx,
+        )
+
+    def test_column_is_added_and_is_above_the_median(self):
+        from src.experiments.run_uq import add_quantile_mean_column
+
+        out = add_quantile_mean_column(self._frame())
+        assert "Quantile-LSTM-mean" in out.columns
+        assert (out["Quantile-LSTM-mean"] > out["Quantile-LSTM"]).all()
+
+    def test_levels_are_inferred_from_the_column_tag(self):
+        """``_lo90``/``_hi90`` must resolve to the 0.05/0.95 quantiles.
+
+        This is what lets ``run_combined`` and any ``--from-predictions`` rebuild
+        derive the column from a predictions parquet with no Phase-6 config.
+        """
+        from src.experiments.run_uq import _infer_quantile_levels, add_quantile_mean_column
+
+        f = self._frame()
+        assert _infer_quantile_levels(f) == pytest.approx((0.05, 0.95))
+        inferred = add_quantile_mean_column(f.copy())["Quantile-LSTM-mean"]
+        explicit = add_quantile_mean_column(
+            f.copy(), q_quantiles=(0.05, 0.5, 0.95))["Quantile-LSTM-mean"]
+        pd.testing.assert_series_equal(inferred, explicit)
+
+    def test_recovers_the_generating_sigma(self):
+        """The correction must read the model's own spread, not a borrowed one."""
+        from src.evaluation.calibration import lognormal_params_from_quantiles
+
+        f = self._frame()
+        _, sigma = lognormal_params_from_quantiles(
+            f["Quantile-LSTM_lo90"], f["Quantile-LSTM"], f["Quantile-LSTM_hi90"],
+            lo_level=0.05, hi_level=0.95)
+        np.testing.assert_allclose(sigma, 0.55, rtol=1e-9)
+
+    def test_missing_quantile_columns_warn_rather_than_raise(self, project_logs):
+        from src.experiments.run_uq import add_quantile_mean_column
+
+        records = project_logs("run_uq")
+        bare = pd.DataFrame({"y_true": [1.0, 2.0]})
+        out = add_quantile_mean_column(bare)
+        assert "Quantile-LSTM-mean" not in out.columns
+        assert any("Quantile-LSTM" in r.getMessage() for r in records)
+
+    def test_the_sensitivity_row_is_never_ranked(self):
+        """A model must not appear to compete with its own retransformation.
+
+        Ranking it would also silently shift every published rank below it —
+        the combined model's "rank 3 of 13" is quoted in the roadmap and headed
+        for Chapter 4.
+        """
+        from src.experiments.run_combined import Q_MEAN_NAME
+        from src.experiments.run_uq import Q_MEAN_NAME as UQ_Q_MEAN_NAME
+
+        assert Q_MEAN_NAME == UQ_Q_MEAN_NAME == "Quantile-LSTM-mean"

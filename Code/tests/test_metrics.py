@@ -246,3 +246,51 @@ class TestGuards:
     def test_all_nan_raises(self):
         with pytest.raises(ValueError):
             mse(np.array([np.nan]), np.array([np.nan]))
+
+
+class TestIntervalNaNPolicy:
+    """The interval metrics must share the point losses' NaN contract.
+
+    Before 2026-08-30 they did not. ``picp`` compared ``NaN >= lower``, which is
+    ``False``, so a missing realisation or a missing endpoint was silently scored
+    as an interval *miss* — coverage understated by a plausible-looking amount,
+    with no warning anywhere. It never fired on the complete ``.SPX`` panel, but
+    RQ3 is entirely a coverage question and Phase 8 adds assets on other trading
+    calendars, which is exactly where a gap appears.
+    """
+
+    def test_picp_excludes_a_missing_truth_rather_than_scoring_it_a_miss(self):
+        y = np.array([1.0, 2.0, np.nan, 4.0])
+        lo = np.array([0.5, 1.5, 3.5, 3.5])
+        hi = np.array([1.5, 2.5, 4.5, 4.5])
+        # All three observable days are covered: 1.0, and the 3 real rows.
+        assert picp(y, lo, hi) == pytest.approx(1.0)
+
+    def test_picp_excludes_a_missing_endpoint(self):
+        y = np.array([1.0, 2.0, 3.0, 4.0])
+        lo = np.array([0.5, 1.5, np.nan, 3.5])
+        hi = np.array([1.5, 2.5, 4.5, 4.5])
+        assert picp(y, lo, hi) == pytest.approx(1.0)
+
+    def test_mpiw_and_winkler_ignore_non_finite_rows(self):
+        lo = np.array([0.0, 1.0, np.nan])
+        hi = np.array([2.0, 3.0, 5.0])
+        y = np.array([1.0, 2.0, 4.0])
+        assert mpiw(lo, hi) == pytest.approx(2.0)
+        assert np.isfinite(winkler_score(y, lo, hi, alpha=0.1))
+
+    def test_coverage_error_is_safe_on_gappy_input(self):
+        y = np.array([1.0, np.nan, 3.0])
+        lo = np.array([0.0, 0.0, 0.0])
+        hi = np.array([2.0, 2.0, 2.0])
+        # One of the two observable days is covered -> picp 0.5.
+        assert coverage_error(y, lo, hi, level=0.9) == pytest.approx(0.5 - 0.9)
+
+    def test_all_missing_raises_rather_than_returning_zero(self):
+        nan3 = np.array([np.nan] * 3)
+        with pytest.raises(ValueError, match="no finite observations"):
+            picp(nan3, nan3, nan3)
+
+    def test_shape_mismatch_still_raises(self):
+        with pytest.raises(ValueError, match="identical shape"):
+            picp(np.array([1.0, 2.0]), np.array([0.0]), np.array([3.0, 4.0]))

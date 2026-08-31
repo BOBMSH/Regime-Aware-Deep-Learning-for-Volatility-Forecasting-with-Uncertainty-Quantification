@@ -170,3 +170,85 @@ class TestPerRegime:
         out = per_regime_interval_metrics(y, lo, hi, state, ["calm", "crisis"], level=0.90)
         crisis = out[out["regime"] == "crisis"].iloc[0]
         assert crisis["n"] == 0 and pd.isna(crisis["picp"])
+
+
+class TestQuantileRetransformation:
+    """The log-normal mean correction the quantile forecaster was missing.
+
+    Every other deep forecaster is retransformed before it is scored — the
+    Phase-3 LSTM returns ``exp(log_rv + smear_var/2)`` and the MC-Dropout model
+    returns ``lognormal_mean(mu, sigma)`` — because the networks regress log
+    variance while MSE and QLIKE are minimised at the conditional *mean* of the
+    variance (Patton 2011). The pinball model was the sole exception: its point
+    was the fitted median, exponentiated. These tests pin the correction that
+    puts it on the same footing.
+    """
+
+    def test_recovers_the_mean_exactly_on_a_true_lognormal(self):
+        from src.evaluation.calibration import (
+            lognormal_mean_from_quantiles,
+            lognormal_quantile,
+        )
+
+        rng = np.random.default_rng(11)
+        mu = rng.normal(-9.0, 1.0, 500)
+        sigma = rng.uniform(0.2, 1.2, 500)
+        q05 = lognormal_quantile(mu, sigma, 0.05)
+        q50 = lognormal_quantile(mu, sigma, 0.50)
+        q95 = lognormal_quantile(mu, sigma, 0.95)
+
+        got = lognormal_mean_from_quantiles(q05, q50, q95, lo_level=0.05, hi_level=0.95)
+        np.testing.assert_allclose(got, lognormal_mean(mu, sigma), rtol=1e-10)
+
+    def test_recovers_the_parameters_not_just_the_mean(self):
+        from src.evaluation.calibration import (
+            lognormal_params_from_quantiles,
+            lognormal_quantile,
+        )
+
+        mu = np.array([-9.0, -8.0])
+        sigma = np.array([0.5, 0.9])
+        got_mu, got_sigma = lognormal_params_from_quantiles(
+            lognormal_quantile(mu, sigma, 0.05),
+            lognormal_quantile(mu, sigma, 0.50),
+            lognormal_quantile(mu, sigma, 0.95),
+            lo_level=0.05, hi_level=0.95,
+        )
+        np.testing.assert_allclose(got_mu, mu, rtol=1e-10)
+        np.testing.assert_allclose(got_sigma, sigma, rtol=1e-10)
+
+    def test_correction_is_strictly_upward(self):
+        """For a right-skewed law the mean sits above the median, always."""
+        from src.evaluation.calibration import lognormal_mean_from_quantiles
+
+        med = np.array([1e-4, 2e-4, 3e-4])
+        lo = med * 0.4
+        hi = med * 2.5
+        got = lognormal_mean_from_quantiles(lo, med, hi, lo_level=0.05, hi_level=0.95)
+        assert np.all(got > med)
+
+    def test_a_degenerate_interval_leaves_the_median_untouched(self):
+        """Zero predicted spread -> zero correction; no divide-by-zero."""
+        from src.evaluation.calibration import lognormal_mean_from_quantiles
+
+        med = np.array([1e-4, 2e-4])
+        got = lognormal_mean_from_quantiles(med, med, med, lo_level=0.05, hi_level=0.95)
+        np.testing.assert_allclose(got, med, rtol=1e-9)
+
+    def test_uses_both_tails_so_an_asymmetric_triple_does_not_bias_the_scale(self):
+        from src.evaluation.calibration import lognormal_params_from_quantiles
+
+        med = np.array([1e-4])
+        # Same total log-spread, shifted asymmetrically about the median.
+        _, s_sym = lognormal_params_from_quantiles(
+            med / 2.0, med, med * 2.0, lo_level=0.05, hi_level=0.95)
+        _, s_skew = lognormal_params_from_quantiles(
+            med / 4.0, med, med * 1.0, lo_level=0.05, hi_level=0.95)
+        np.testing.assert_allclose(s_sym, s_skew, rtol=1e-12)
+
+    def test_rejects_levels_that_do_not_straddle_the_median(self):
+        from src.evaluation.calibration import lognormal_mean_from_quantiles
+
+        med = np.array([1e-4])
+        with pytest.raises(ValueError, match="lo_level < 0.5 < hi_level"):
+            lognormal_mean_from_quantiles(med, med, med, lo_level=0.6, hi_level=0.95)

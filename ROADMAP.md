@@ -2,11 +2,11 @@
 ## Regime-Aware Deep Learning for Financial Volatility Forecasting with Uncertainty Quantification
 
 **Author:** Bob (University of Warwick, MSc Applied AI)
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-30
 **Target submission window:** ~12 weeks (≈ early August 2026)
 **Compute:** Local machine with GPU
 **Stack:** Python, PyTorch, pandas, numpy, scikit-learn, statsmodels, `arch`, `hmmlearn`
-**Status:** Phases 0–7 complete — milestones `m01`–`m07` on disk, ~334 unit tests, all phases re-run 2026-08-19 after the report/code alignment work, and the evaluation-side defects found in the three pre-Phase-7 audits closed (see the changelog: (ii) fixed the per-regime bucket **label**, (iii) fixed the transition **selector** and retracted the RQ3 transition headline, (iv) fixed the label **source** so the descriptive and Giacomini–White tables are computed on the same 784 days). **Phase 7 completed 2026-08-23** — both profiles trained at MC=100 (`m07_combined.md`, `m07_combined_hmm.md`) and every published statistic independently re-derived from the parquets in audit (vii). The one remediation that audit found — the committed artefacts spanning two Python interpreters — was **carried out 2026-08-24**: Phases 2–7 were regenerated in a single environment, every phase's run snapshot now reads the same interpreter and library set, and the Phase-5 inheritance guard passes at machine epsilon. Exactly one published number moved (the combined model's), and no conclusion changed; see the 2026-08-24 (viii) entry. **Phase 8 (robustness + writing) is next; its RQ4 asset set was decided on 2026-08-23 — `.RUT` and `.FTSE`, not AAPL/TSLA.**
+**Status:** Phases 0–7 complete — milestones `m01`–`m07` on disk, ~334 unit tests, all phases re-run 2026-08-19 after the report/code alignment work, and the evaluation-side defects found in the three pre-Phase-7 audits closed (see the changelog: (ii) fixed the per-regime bucket **label**, (iii) fixed the transition **selector** and retracted the RQ3 transition headline, (iv) fixed the label **source** so the descriptive and Giacomini–White tables are computed on the same 784 days). **Phase 7 completed 2026-08-23** — both profiles trained at MC=100 (`m07_combined.md`, `m07_combined_hmm.md`) and every published statistic independently re-derived from the parquets in audit (vii). The one remediation that audit found — the committed artefacts spanning two Python interpreters — was **carried out 2026-08-24**: Phases 2–7 were regenerated in a single environment, every phase's run snapshot now reads the same interpreter and library set, and the Phase-5 inheritance guard passes at machine epsilon. Exactly one published number moved (the combined model's), and no conclusion changed; see the 2026-08-24 (viii) entry. **Phase 8 (robustness + writing) is next.** Audit (ix) on 2026-08-30 re-verified every published number against the regenerated artefacts (all reproduce), cleared the Phase-8 blockers, and settled the phase's three open scope decisions — see Phase 8 below and the (ix) changelog entry. Chapter 1's three factual errors about the study's own design were corrected in the .docx; **Chapter 2 was deliberately left untouched**, and the fifteen parked methodology declarations now live in §11 rather than in audit reports.
 
 **The three headline findings, as they now stand:**
 
@@ -60,7 +60,7 @@ The single biggest threat to dissertation credibility in this area is data leaka
 3. **All scaling/normalization parameters fit on training only.** Use sklearn-style fit/transform discipline.
 
 ### 1.4 Single primary asset, two robustness assets
-Trying to do regime + UQ + 3 deep models × 4 assets in 12 weeks is not realistic. Make S&P 500 (^GSPC) the primary asset where you run *every* experiment. Then run a slimmed robustness check (baselines + best DL model only) on **two further Oxford-Man indices — `.RUT` (Russell 2000) and `.FTSE` (FTSE 100)** — to show your conclusions generalize. VIX is a *feature*, not an additional target.
+Trying to do regime + UQ + 3 deep models × 4 assets in 12 weeks is not realistic. Make S&P 500 (^GSPC) the primary asset where you run *every* experiment. Then run a slimmed robustness check (baselines + best DL model only) on **two further Oxford-Man indices — `.RUT` (Russell 2000) and `.FTSE` (FTSE 100)** — to show your conclusions generalize. VIX is a *feature*, not an additional target. *(2026-08-30 (ix): both assets, and every identifier they need, are now declared in `configs/data.yaml` under `assets.registry` and resolved by `src.data.datasets.resolve_asset`.)*
 
 *Changed 2026-08-23 (vii):* the original choice was AAPL + TSLA. The Oxford-Man Realized Library publishes realized measures for **indices only** — 31 of them, no single stocks — so those two assets could only have been given a Yang-Zhang OHLC proxy, and Ch1 §1.8 reserves Yang-Zhang as a target-validity *diagnostic* rather than a forecasting target. Using it for RQ4 would have contradicted the chapter that scopes the study, and would have made RQ4's results incomparable with RQ1–3 because the dependent variable changed. `.RUT` and `.FTSE` keep the target identical in construction and are the harder test as well: a US small-cap index, and a different market with a different trading session, rather than two US large-caps that co-move with the S&P 500.
 
@@ -161,9 +161,32 @@ Two architectures, run head-to-head:
 - **Gate:** `results/m07_combined.md` with the master results table that will appear in the dissertation
 
 ### Phase 8 — Robustness + Writing (Week 11)
-- Run baselines + best model on `.RUT` and `.FTSE` (RQ4) — **decided 2026-08-23 (vii)**; see §1.4 for why not AAPL/TSLA. Both series are already in the cached Oxford-Man CSV and need no new intraday download: `.RUT` 5550 rows, `.FTSE` 5586 rows, both spanning 2000 → 2022-02-25 with **zero missing `rv5`** — the same window as `.SPX`. What the phase does need: daily OHLC for `^RUT` and `^FTSE` from yfinance (the GARCH family's return input, the regime model's return features and the Yang-Zhang diagnostic all read OHLC), and `oxfordman.primary_symbol` in `configs/data.yaml` made per-profile rather than fixed at `.SPX`.
-- Sensitivity analyses: lookback length, refit frequency, RV proxy choice (one figure each)
-- Writing: Background, Methods, Experiments, Results, Discussion
+
+**RQ4 — cross-asset generalisation on `.RUT` and `.FTSE`.** Decided 2026-08-23 (vii); see §1.4 for why not AAPL/TSLA. Both series are already in the cached Oxford-Man CSV and need no new intraday download: `.RUT` 5550 rows, `.FTSE` 5586 rows, both spanning 2000 → 2022-02-25 with **zero missing `rv5`** — the same window as `.SPX`, all three re-verified directly in the CSV on 2026-08-30.
+
+**Three scope decisions, settled 2026-08-30 (ix). Do not re-open them mid-phase.**
+
+1. **Regimes are re-estimated per asset — not transferred from the S&P.** RQ4 asks whether the *conclusions* generalise, and a conclusion is about the pipeline; the pipeline includes Phase 4, so substituting the S&P's regime path would test the pipeline-minus-Phase-4 and quietly answer a different question. The cost argument does not rescue the alternative either: the expensive component is the LSTMs, which must be refit per asset regardless, while the regime stage is a Gaussian HMM on ~5.5k standardised daily returns — minutes, not hours. §1.4's "slimmed" refers to the **model set**, not to skipping estimation stages, and the best deep model is regime-conditioned, so it needs a regime signal by construction. Each asset therefore gets its own feature standardisation, its own Baum-Welch and jump-penalised fits, and its own λ selected by the **same pre-registered rule on the same pre-registered grid**, applied to that asset's training rows. Report the per-asset λ, K and regime persistence beside the S&P's: if `.FTSE`'s λ lands somewhere very different, that is itself a finding about the method's portability.
+   *Optional secondary run, if time allows:* condition `.FTSE` on the **S&P's** regime path as an explicitly-labelled transfer experiment. "Does US market state predict UK volatility regimes" is a genuinely interesting question and costs one extra run — but it is a **secondary** result and must never be presented as the RQ4 answer.
+2. **The LSTM-VIX ablation is not run on `.FTSE`.** The CBOE VIX prices S&P 500 options; feeding it to a FTSE model is a cross-market spillover experiment, not the auxiliary-feature ablation Ch1 §1.8 describes, and the UK analogue (VFTSE) is not in the data. It would also silently intersect the LSE and NYSE calendars in the frame's inner join. This is now enforced in data rather than by memory: `assets.registry.FTSE.vix_feature: false` in `configs/data.yaml`, and `build_econometric_frame` refuses to join the column and logs why.
+3. **RQ4 is declared in Chapter 1 §1.6 as a pre-registered *secondary* question**, with its reduced design (baselines + best deep model, two indices) stated in the same sentence. Ch1 previously said the study was organised around *three* research questions while this file had carried a stretch RQ4 since May; a results chapter answering four beside an introduction declaring three is the discrepancy an examiner notices first. Stating the reduced scope up front is also what inoculates the answer against the "under-powered" objection. Corrected in the .docx 2026-08-30 (ix).
+
+**Blockers cleared 2026-08-30 (ix)** — the phase is startable except for the data pull:
+- `configs/data.yaml` gained an **asset registry** (`assets.registry`): the single source of truth mapping each asset key to its yfinance ticker, OHLC cache alias, Oxford-Man symbol, trading session and VIX eligibility. `assets:` previously had *no consumer at all*, which is exactly why it still named AAPL and TSLA a week after (vii) replaced them — a stale value in a block nothing reads is invisible.
+- `realized_variance_target` / `build_econometric_frame` now take an `asset=` key resolved through that registry. Before this the Oxford-Man symbol was read from `oxfordman.primary_symbol` unconditionally, so a Phase-8 profile would have regressed Russell 2000 returns on **S&P 500** realised variance and printed an entirely plausible table. `tests/test_datasets.py` guards it.
+- `src/data/ingest.py` reads the registry too, so `--all` covers the Phase-8 assets and the ticker downloaded is by construction the ticker the modelling frame later looks for.
+- `build_econometric_frame` now records calendar attrition in `frame.attrs["join_attrition"]` and warns above 2%. The frame is an inner join across sources; on `.SPX` that is invisible because everything shares the NYSE calendar, and on any other asset it is a live risk.
+- **Still outstanding, and only doable on the Windows machine (needs network):** `python -m src.data.ingest --asset RUT` then `--asset FTSE`.
+
+**Sensitivity analyses**, in descending value:
+- **`refit_every_folds: 1`** — the design asymmetry disclosed in §1.7 runs *against* the deep models, so this is the sensitivity most likely to strengthen a headline result rather than qualify it. `--refit-every` already exists on `run_lstm`.
+- **Log-HAR** (`har.transform: log`) through the harness. Implemented and config-exposed but never run through it; a one-off check gives log-HAR QLIKE 0.4882 against 0.2745 in levels, which kills the "the LSTM only wins because it models logs" objection outright. Worth having properly on the record.
+- **Lookback length**, which doubles as the home for the HAR-regressor control below.
+- **HAR-regressor RV-only LSTM** — set `robustness.rv_only_features: [log_rv_d, log_rv_w, log_rv_m]` in `configs/lstm_baseline.yaml` (the feature builders already exist) to give the RV-only LSTM Corsi's exact regressors rather than raw daily lags. Ch1 §1.5(ii) has been corrected to describe what is actually fed; this run would make the stronger claim testable rather than argued. Note the current design is the more **conservative** control — a 10-day window of raw daily log-RV reaches back less far than HAR's 22 days — so the existing result is not flattered by it.
+- **RV proxy choice** (the Yang-Zhang diagnostic, already built).
+
+**Already delivered by (ix), no run required beyond a `--from-predictions` rebuild:** the quantile model's point forecast is now also reported retransformed onto the mean scale (`Quantile-LSTM-mean`, QLIKE **0.2742** against 0.3216 for the median point). Every other deep model in the study is retransformed before scoring — the Phase-3 LSTM by `exp(log_rv + smear_var/2)`, MC-Dropout by the log-normal mean of its predictive law — and the pinball head was the only one that was not, so it was being ranked on an estimand it was never trained to produce. The row is **unranked** in the master table: it is the same forecast under a different retransformation, not a rival, and ranking it would have shifted every published rank below it.
+
 - **Gate:** Full dissertation draft v0.9 (everything except Conclusion + Abstract)
 
 ### Phase 9 — Polish, reproducibility check, submission (Week 12)
@@ -436,7 +459,134 @@ Treat the following as non-negotiable from Phase 0 onwards:
 
 ---
 
+## 11. Chapter 3 — the declarations checklist
+
+Chapter 3 (Methodology) **does not exist yet**, and it is the largest single risk
+in the project. It is a *writing* risk, not a technical one, which is precisely
+why it keeps being deferred: every phase closes cleanly without it.
+
+Fifteen decisions have been resolved during the build with the note "state this
+in Chapter 3", and until 2026-08-30 they lived only in audit reports and session
+memory — neither of which survives into a submitted dissertation. They are listed
+here, in the plan-of-record, so the chapter has a specification rather than a
+recollection to write from. Each is a decision that was **made deliberately** and
+would look like an oversight if a reader met it undeclared.
+
+**Estimation and protocol**
+
+1. **The refit asymmetry.** Deep models are trained once on data ≤ 2018-12-31 and
+   frozen (`refit_every_folds: 0`); GARCH/EGARCH/HAR-RV refit every 21 trading
+   days on an expanding window. Both are leakage-free, the asymmetry runs
+   *against* the deep models, and Ch1 §1.7 explicitly promises Chapter 3 examines
+   it. The `refit_every_folds: 1` Phase-8 sensitivity is the evidence.
+2. **The HMM's own training window is shorter still** — the regime model is fit on
+   ≤ 2015-12-31 (the training split proper) and filtered forward without refit,
+   while the models that consume its posterior are fit on ≤ 2018-12-31. This is
+   deliberate and conservative: K and λ are *selected* on training rows, so
+   refitting after selection would be the symmetric alternative and was not taken.
+   `m04` discloses it; m05/m06/m07 do not, so Chapter 3 must.
+3. **The λ *grid* was pre-registered, not just the selection rule.** Fixed
+   2026-05-15, before any Phase-5 result existed. A finer grid would make the
+   literal rule pick 1.5 — one grid point from the λ=1.0 collapse — so the
+   sensitivity is published rather than the rule quietly redefined. Say that the
+   grid, not only the rule, was fixed in advance; otherwise the defence sounds
+   post-hoc even though it is not.
+4. **K = 3 is defended on pre-registration and interpretability, never on BIC.**
+   The margin over K = 4 is 4.8 points and the jump model's own BIC prefers K = 4.
+   Guidolin (2011), already cited in Ch2 §2.4, is the interpretability argument.
+5. **The "best of Phase 5" selection rule** — Regime-LSTM-B was chosen on the
+   *transitional* result, the only bucket with a formal test behind it. Calm and
+   crisis are point estimates on 379 and 76 days, and crisis reverses sign between
+   regime estimators; selecting on either would be choosing an architecture on
+   noise. The rule was fixed before Phase 7 ran.
+
+**Scoring and inference**
+
+6. **MAE sits outside Patton's (2011) proxy-robust class** and is therefore
+   descriptive only — it never ranks models. Ch1 §1.7 already says so; Chapter 3
+   should give the reason rather than the rule.
+7. **The Giacomini–White estimation-window condition is violated on one side of
+   every deep-vs-econometric pair.** GW assumes a finite estimation window; the
+   frozen deep models satisfy it, the expanding-window econometric baselines do
+   not. The test is applied in the form standard in the applied volatility
+   literature, and the qualification is declared rather than discovered at the
+   viva. Ch2 §2.7 records it; Chapter 3 owns it.
+8. **The GW long-run covariance is mean-centred, which makes the test mildly
+   over-sized.** Direction and magnitude are both measured, not hand-waved:
+   Regime-LSTM-B vs HAR-RV is 40.132 centred against 38.178 uncentred (+5.1%,
+   p 9.99e-09 → 2.59e-08); Regime-LSTM-A vs HAR-RV 22.884 against 22.235 (+2.9%).
+   No conclusion changes at any conventional level. Centring is kept because it is
+   what `diebold_mariano` uses, so the documented q = 1 DM/GW equivalence holds
+   exactly.
+9. **Subsample coverage is tested by difference-in-coverage and incremental DQ,
+   never by a nominal Kupiec test on the subsample.** These intervals are too
+   narrow globally, so a nominal test rejects on *any* subsample with power — it
+   would report a level failure as a timing failure. See
+   [[feedback-level-vs-timing]].
+10. **The Holm family is (method, level, side), seven members**, mixing the four
+    difference-in-coverage tests with the three incremental-DQ tests. This must
+    reach Chapter 4 or the headline "5 of 16" is unreadable against a family of 7:
+    the 16 is a count of model × conditioner rows, the 7 is the correction unit.
+11. **The quantile model's point forecast is a median, not a QLIKE-optimal
+    functional**, and is now reported both ways — see Phase 8 above and
+    `run_uq.add_quantile_mean_column`. Chapter 3 states the estimand; Chapter 4
+    reports both rows.
+
+**Implementation choices that diverge from what Chapter 2 describes**
+
+12. **The quantile head is monotone by construction** (`base + cumsum(softplus)`),
+    so quantile crossing is impossible for any weights. Ch2 §2.6 correctly reports
+    non-monotonicity as a caveat *in the literature*; Chapter 3 is where our
+    implementation's removal of it belongs. **Do not edit Ch2** — the chapter is
+    accurate about the literature, and rewriting a review to match our own code is
+    the retrofitting this project has avoided throughout (see
+    [[feedback-chapter-role-separation]]).
+13. **`LSTM-Gaussian` is a declared reference ablation**, not a third UQ method:
+    the MC-Dropout network's deterministic forward pass wrapped in an
+    aleatoric-only interval, isolating what the T stochastic passes add. It
+    appears in the master table but in neither chapter.
+14. **`RW-RV` is a declared reference floor**, not a baseline. Ch1 §1.5(i)
+    enumerates three econometric baselines; the random walk is a fourth column in
+    every table.
+15. **The RV-only LSTM's actual input set** — `[log_rv]` over a 10-day window,
+    against HAR-RV's daily/weekly/monthly aggregates reaching 22 days. Same
+    information *set*, different regressor construction, and less history reach,
+    which makes it the more conservative control. Ch1 §1.5(ii) was corrected on
+    2026-08-30 to say so; Chapter 3 gives the numbers.
+
+**Provenance**
+
+16. **One environment per artefact set** — every phase's run snapshot stamps the
+    interpreter and library versions (`_environment` in
+    `experiments/*/run_*/config.yaml`), and Phases 2–7 were regenerated in a single
+    environment on 2026-08-24 for exactly this reason. `torch` is pinned in
+    `requirements-lock.txt` as of 2026-08-30.
+
+---
+
 ## Changelog
+
+### 2026-08-30 (ix) — audit, then the fixes: Phase-8 blockers cleared, Ch1 corrected, a scoring inconsistency closed
+
+**Verification first.** Every headline statistic was re-derived from the committed parquets by independent code importing nothing from `src/`: the 14-model pooled QLIKE table, the GW χ² for B/A/LSTM against HAR-RV, seven DM pairs, the t−1 buckets 379/329/76, per-regime QLIKE, transitional DM p=4.294e-09, PICP and Kupiec at both levels, per-regime coverage 0.844/0.894/0.842, and both Holm counts (0 of 16 pooled, 5 of 16 upper-tail, the same five rows). All reproduce to printed precision, so the "result numbers pending re-check after the (viii) regeneration" item is **closed**. The Phase-5 inheritance guard re-measured at exactly **0.0** — bit-identical, better than the 2.22e-16 recorded. The suite was also run in a clean container on Python 3.11.15 / torch 2.13.0+cu130 / statsmodels 0.15.0, deliberately different from the stack that produced the artefacts: 345/345 passed, so the tests certify behaviour rather than one machine's floating point.
+
+**Then the fixes.**
+
+- **Asset registry** (`configs/data.yaml` → `assets.registry`). One block resolving each asset's yfinance ticker, OHLC cache alias, Oxford-Man symbol, session and VIX eligibility. The `assets:` block had **no consumer anywhere in the codebase**, which is why it still named AAPL and TSLA a week after (vii) replaced them: a stale value nothing reads cannot disagree with anything out loud. `src/data/ingest.py` now reads it too, so its hardcoded `YFINANCE_SYMBOLS` is a legacy fallback rather than a second, divergent list.
+- **The Oxford-Man symbol is threaded through the data path.** `realized_variance_target` and `build_econometric_frame` take `asset=` / `symbol=`, defaulting to the previous behaviour exactly. Before this the target symbol was read from config unconditionally, so a Phase-8 profile would have paired Russell 2000 returns and OHLC with **S&P 500** realised variance — a silent, entirely plausible-looking error. `tests/test_datasets.py` (13 tests) is new: this file is the single entry point every phase uses and had no tests at all, which is the reason both defects survived.
+- **Calendar attrition is reported.** The modelling frame is an inner join across sources; on `.SPX` that is invisible because every source shares the NYSE calendar. `frame.attrs["join_attrition"]` now records target rows, rows lost to the join and rows lost to warm-up, with a warning above 2%.
+- **The VIX is refused for non-US assets** rather than silently joined — enforced by `assets.registry.<key>.vix_feature`, with the reasoning in the config beside the flag.
+- **Interval metrics now share the point losses' NaN contract.** `picp` compared `NaN >= lower`, which is `False`, so a missing endpoint or realisation was scored as an interval **miss** — coverage understated by a plausible amount with no warning. It never fired on the complete `.SPX` panel, but RQ3 *is* the coverage question and Phase 8 adds assets on other calendars. `mpiw` and `winkler_score` returned `NaN` (loud, harmless); all three now drop non-finite rows and raise when nothing survives.
+- **The quantile model's retransformation** — the substantive one. Every other deep forecaster is mapped to the mean scale before scoring (the Phase-3 LSTM by `exp(log_rv + smear_var/2)`, MC-Dropout by the log-normal mean of its predictive law) because the networks regress log variance while MSE and QLIKE are minimised at the conditional **mean** (Patton 2011). The pinball head was the sole exception, and its median sits below the MC-Dropout mean on **every one of the 784 evaluation days**, so it was being ranked on an estimand it was never trained to produce. `Quantile-LSTM-mean` applies the same correction using the model's **own** fitted spread — a conditional σ, and therefore a better scale estimate than the Phase-3 LSTM's constant `smear_var` — giving QLIKE **0.274237** against 0.321647 for the median point, level with HAR-RV's 0.274490 rather than well behind it. The row is **unranked**: it is one forecast under two retransformations, not two models, and ranking it would have shifted every published rank below it. Verified: all 13 ranked models keep their published rank and QLIKE to 5.6e-17. The m06 note previously carried this caveat in prose with no number attached — a caveat with no measurement behind it is the same failure as a claim with no test behind it.
+- **Chapter 1, three factual corrections** (and Chapter 2 deliberately untouched, per [[feedback-chapter-role-separation]]): §1.5(ii)'s "inputs match those of HAR-RV **exactly**" was false — the RV-only LSTM is `[log_rv]` over 10 days against HAR's three aggregates reaching 22 — and now says "the same information set … supplied as raw daily lags rather than as Corsi's daily, weekly and monthly aggregates"; §1.6 declared *three* research questions while this file has carried a stretch RQ4 since May, and now declares four with RQ4 explicitly secondary and its reduced design stated in the same sentence; §1.8's "supplemented … by individual large-cap equities" now names `.RUT` and `.FTSE`. All three were errors about the study's own design, not results — correcting them is not retrofitting.
+- **Sixth generated-prose overstatement fixed.** `run_uq.py` asserted the LSTM-Gaussian point reproduces the Phase-3 LSTM "exactly"; agreement is ~1e-6 relative, and the master table prints 4.484934e-08 beside 4.484935e-08 for the two rows. Now "to floating-point precision", with the reason.
+- **`torch==2.13.0+cpu` pinned** in `requirements-lock.txt` — §9 requires pinned dependencies and Phase 9 re-runs from a fresh checkout; the deep models had no reproducible version outside the per-run `_environment` stamp.
+- **§11 added**: the fifteen parked Chapter-3 declarations, previously resident only in audit reports and session memory.
+
+**Phase 8's three scope decisions settled** — regimes re-estimated per asset (not transferred from the S&P), no LSTM-VIX ablation on `.FTSE`, RQ4 declared as secondary in Ch1. Reasoning in the Phase 8 section above.
+
+**Suite 345 → 375.** The only step still outstanding before Phase 8 can run is the yfinance pull for `^RUT` and `^FTSE`, which needs the Windows machine.
+
 
 **2026-05-15 — Alignment with Chapter 2 (Literature Review v2).**
 Following completion of the literature review, the roadmap was updated to absorb the chapter's stronger methodological commitments. Concretely:

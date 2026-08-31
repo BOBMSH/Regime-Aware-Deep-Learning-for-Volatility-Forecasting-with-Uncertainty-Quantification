@@ -86,6 +86,69 @@ def lognormal_mean(mu: np.ndarray, sigma: np.ndarray) -> np.ndarray:
     return np.clip(np.exp(mu + 0.5 * sigma ** 2), _VAR_FLOOR, None)
 
 
+def lognormal_params_from_quantiles(
+    q_lo, q_med, q_hi, *, lo_level: float, hi_level: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Recover ``(mu, sigma)`` of a log-normal law from three of its quantiles.
+
+    ``q_lo``/``q_med``/``q_hi`` are quantiles on the **variance** scale at levels
+    ``lo_level`` / 0.5 / ``hi_level``. Under a log-normal predictive law the log
+    quantiles are ``mu + z_tau * sigma``, so
+
+        mu    = log(q_med)
+        sigma = (log q_hi - log q_lo) / (z_hi - z_lo)
+
+    Using *both* outer quantiles rather than one makes the scale estimate
+    symmetric, so a slightly asymmetric fitted triple does not bias it.
+    """
+    if not 0.0 < lo_level < 0.5 < hi_level < 1.0:
+        raise ValueError(
+            f"need lo_level < 0.5 < hi_level in (0, 1), got {lo_level}, {hi_level}"
+        )
+    lo = np.clip(_as_array(q_lo), _VAR_FLOOR, None)
+    med = np.clip(_as_array(q_med), _VAR_FLOOR, None)
+    hi = np.clip(_as_array(q_hi), _VAR_FLOOR, None)
+    if not (lo.shape == med.shape == hi.shape):
+        raise ValueError(f"shape mismatch: {lo.shape}, {med.shape}, {hi.shape}")
+    spread = _z(hi_level) - _z(lo_level)
+    mu = np.log(med)
+    sigma = np.clip((np.log(hi) - np.log(lo)) / spread, 1e-12, None)
+    return mu, sigma
+
+
+def lognormal_mean_from_quantiles(
+    q_lo, q_med, q_hi, *, lo_level: float, hi_level: float
+) -> np.ndarray:
+    """Mean-scale point forecast implied by a set of predictive quantiles.
+
+    Why this exists — the retransformation the quantile model was missing
+    ------------------------------------------------------------------------
+    Every other deep forecaster in this project already applies a log-normal
+    retransformation before it is scored: :class:`LSTMForecaster` returns
+    ``exp(log_rv + smear_var/2)``, and the MC-Dropout forecaster returns
+    :func:`lognormal_mean` of its predictive ``(mu, sigma)``. Both do so because
+    the networks regress **log** variance while MSE and QLIKE are minimised at
+    the conditional **mean** of the variance (Patton 2011), and for a
+    right-skewed law the median sits strictly below the mean.
+
+    The pinball-trained quantile model was the one exception: its point forecast
+    is the fitted median, exponentiated, with no retransformation. Ranking that
+    median against mean-eliciting losses measures the estimand as much as the
+    model. This function applies the same correction the others already get,
+    using the quantile model's *own* predicted spread — which is a conditional
+    ``sigma``, and therefore a strictly better scale estimate than the constant
+    held-out ``smear_var`` the Phase-3 LSTM uses.
+
+    The log-normal closure is an assumption, and a stated one: the method is
+    distribution-free by design (Ch2 §2.6), so this is reported as a labelled
+    sensitivity beside the median-point row, never as a replacement for it.
+    """
+    mu, sigma = lognormal_params_from_quantiles(
+        q_lo, q_med, q_hi, lo_level=lo_level, hi_level=hi_level
+    )
+    return lognormal_mean(mu, sigma)
+
+
 def interval_metrics(
     y_true, lower, upper, *, level: float
 ) -> dict[str, float]:

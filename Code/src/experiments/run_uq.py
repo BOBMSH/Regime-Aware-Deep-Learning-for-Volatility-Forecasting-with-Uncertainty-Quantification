@@ -54,6 +54,7 @@ from src.data.splits import SplitConfig, walk_forward_folds
 from src.evaluation.calibration import (
     interval_metrics,
     lognormal_interval,
+    lognormal_mean_from_quantiles,
     lognormal_quantile,
     per_regime_interval_metrics,
     reliability_curve,
@@ -80,6 +81,9 @@ REGIME_STATE_COL = "reg_state"
 MC_NAME = "MC-Dropout-LSTM"
 Q_NAME = "Quantile-LSTM"
 GAUSS_NAME = "LSTM-Gaussian"
+#: Retransformed quantile point forecast — a labelled sensitivity, never a
+#: replacement for ``Q_NAME``. See :func:`add_quantile_mean_column`.
+Q_MEAN_NAME = "Quantile-LSTM-mean"
 
 
 # --------------------------------------------------------------------------- #
@@ -268,12 +272,96 @@ def endpoint_gap_verdict(pr: pd.DataFrame, labels: list[str]) -> str:
 # --------------------------------------------------------------------------- #
 # Tables                                                                       #
 # --------------------------------------------------------------------------- #
+def _infer_quantile_levels(preds: pd.DataFrame) -> tuple[float, float] | None:
+    """Recover the fitted outer quantile levels from the persisted column names.
+
+    ``Quantile-LSTM_lo90``/``_hi90`` is a central 90% band, i.e. the 0.05 and 0.95
+    quantiles. Inferring this lets :func:`add_quantile_mean_column` run against a
+    predictions parquet alone -- which is what ``run_combined`` and any
+    ``--from-predictions`` rebuild have -- instead of needing the Phase-6 config.
+    """
+    tags = sorted(
+        {int(str(c).rsplit("_lo", 1)[1]) for c in preds.columns
+         if str(c).startswith(f"{Q_NAME}_lo") and str(c).rsplit("_lo", 1)[1].isdigit()}
+    )
+    if not tags:
+        return None
+    width = max(tags) / 100.0
+    a = (1.0 - width) / 2.0
+    return a, 1.0 - a
+
+
+def add_quantile_mean_column(preds: pd.DataFrame, q_quantiles=None) -> pd.DataFrame:
+    """Add the retransformed quantile point forecast, in place, and return ``preds``.
+
+    Why (2026-08-30) — a scoring inconsistency, not a new model
+    ----------------------------------------------------------
+    Every other deep forecaster in this study is retransformed to the mean scale
+    before it is scored. ``LSTMForecaster`` returns ``exp(log_rv + smear_var/2)``;
+    ``MCDropoutLSTMForecaster`` returns the log-normal mean of its predictive law.
+    Both do so for the same reason: the networks regress **log** variance, while
+    MSE and QLIKE are minimised at the conditional **mean** of the variance
+    (Patton 2011), and for a right-skewed law the median lies strictly below it.
+
+    The pinball-trained head was the single exception — its point forecast is the
+    fitted median, exponentiated, with no correction. On this sample that median
+    sits below the MC-Dropout mean on **every one of the 784 evaluation days**, so
+    ranking it against the others on QLIKE was measuring the estimand at least as
+    much as the model.
+
+    The correction uses the quantile model's *own* ``[q_lo, q_med, q_hi]`` triple,
+    so it borrows nothing from the parametric models: the implied ``sigma`` comes
+    from its predicted spread, which is conditional and therefore a better scale
+    estimate than the Phase-3 LSTM's constant held-out ``smear_var``. The
+    log-normal closure is an assumption and the method is distribution-free by
+    design (Ch2 §2.6), which is exactly why this is reported as an extra labelled
+    row and the median-point row is left standing unchanged.
+
+    Derived purely from columns already in the predictions parquet, so a
+    ``--from-predictions`` rebuild produces it with no retraining.
+    """
+    if q_quantiles is None:
+        levels = _infer_quantile_levels(preds)
+        if levels is None:
+            log.warning("cannot build %s: no %s_lo* column to infer levels from",
+                        Q_MEAN_NAME, Q_NAME)
+            return preds
+        lo_level, hi_level = levels
+    else:
+        taus = sorted(float(t) for t in q_quantiles)
+        lo_level, hi_level = taus[0], taus[-1]
+    tag = int(round((hi_level - lo_level) * 100))
+    lo_col, hi_col = f"{Q_NAME}_lo{tag}", f"{Q_NAME}_hi{tag}"
+    if not {Q_NAME, lo_col, hi_col} <= set(preds.columns):
+        log.warning(
+            "cannot build %s: need %s, %s and %s in the predictions frame",
+            Q_MEAN_NAME, Q_NAME, lo_col, hi_col,
+        )
+        return preds
+    preds[Q_MEAN_NAME] = lognormal_mean_from_quantiles(
+        preds[lo_col], preds[Q_NAME], preds[hi_col],
+        lo_level=lo_level, hi_level=hi_level,
+    )
+    ratio = float(np.mean(preds[Q_MEAN_NAME].to_numpy() / preds[Q_NAME].to_numpy()))
+    log.info("%s built from the fitted %.2f/%.2f/0.50 triple; mean correction factor %.4f",
+             Q_MEAN_NAME, lo_level, hi_level, ratio)
+    return preds
+
+
 def point_metrics_table(preds: pd.DataFrame, lstm_point: pd.Series | None) -> pd.DataFrame:
     """QLIKE of each UQ point forecast (+ the deterministic Phase-3 LSTM), so the
-    reader can see the uncertainty machinery does not cost point accuracy."""
+    reader can see the uncertainty machinery does not cost point accuracy.
+
+    ``Quantile-LSTM`` is the model's own median point; ``Quantile-LSTM-mean`` is
+    that point put on the mean scale QLIKE actually elicits (see
+    :func:`add_quantile_mean_column`). Both are reported: the first is what the
+    method produces, the second is what makes the comparison like-for-like.
+    """
     y = preds[ACTUAL_COL]
     rows = {}
     cand = {MC_NAME: preds[MC_NAME], Q_NAME: preds[Q_NAME], GAUSS_NAME: preds[GAUSS_NAME]}
+    if Q_MEAN_NAME in preds.columns:
+        cand[Q_MEAN_NAME] = preds[Q_MEAN_NAME]
     if lstm_point is not None:
         cand["LSTM (Phase 3)"] = lstm_point.reindex(preds.index)
     for name, h in cand.items():
@@ -688,13 +776,30 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
              f"deterministic LSTM, and a formal Diebold–Mariano test finds **no** significant point-"
              f"accuracy difference (DM {dm['dm_stat']:.2f}, p={dm['p_value']:.3f}) — the intervals come "
              "at no cost to the forecast. The **LSTM-Gaussian** point reproduces the Phase-3 LSTM "
-             "exactly (same weights, dropout off), confirming the reference is the Phase-3 model. "
+             "to floating-point precision (same weights, dropout off) — agreement is ~1e-6 in "
+             "relative terms, not bitwise, which is why the master table prints MSE values that "
+             "differ in their seventh significant figure. That is the numerical floor of a "
+             "same-environment refit, and it confirms the reference is the Phase-3 model. "
              f"The quantile model's higher QLIKE ({pt.loc[Q_NAME, 'qlike']:.4f}) is expected and is "
              "*not* an interval-quality signal: its point is the predictive **median**, whereas QLIKE "
              "is minimised at the conditional **mean** (Patton 2011), and for right-skewed realized "
              "variance the median sits below the mean — so a mean-vs-median QLIKE gap is partly an "
              "artefact of the target functional. The quantile method's job is *calibration*, "
              "adjudicated below, not point-QLIKE.\n")
+    if Q_MEAN_NAME in pt.index:
+        _qm, _q0 = float(pt.loc[Q_MEAN_NAME, "qlike"]), float(pt.loc[Q_NAME, "qlike"])
+        p.append(
+            f"\nThat artefact is now **measured rather than asserted**. Every other deep model here "
+            f"is retransformed to the mean scale before scoring — the Phase-3 LSTM by "
+            f"`exp(log_rv + smear_var/2)`, MC-Dropout by the log-normal mean of its predictive law — "
+            f"and the pinball head was the only one that was not. Applying the same correction, using "
+            f"the quantile model's **own** fitted spread rather than any parametric model's, gives "
+            f"`{Q_MEAN_NAME}` QLIKE **{_qm:.4f}** against {_q0:.4f} for the median point, a gap of "
+            f"{_q0 - _qm:.4f}. The uncorrected row stays in the table because the median is what the "
+            f"method actually produces and the log-normal closure is an assumption a distribution-free "
+            f"method does not otherwise make (Ch2 §2.6); the corrected row is what makes the "
+            f"point-forecast comparison like-for-like, and it is the one to read against the "
+            f"mean-scale models.\n")
 
     p.append(f"## Calibration — central intervals\n")
     p.append("PICP is empirical coverage (closer to nominal is better); MPIW is mean interval width "
@@ -1094,6 +1199,11 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         q_level = float(uq[Q_NAME].columns[-1][1:]) - float(uq[Q_NAME].columns[0][1:])
         preds = build_predictions(uq, y_true, reg_state_full, levels)
         n_mc = int(models[0].mc_samples)
+
+    # Retransform the quantile point onto the mean scale QLIKE elicits. Derived
+    # from the persisted quantiles, so both branches above reach it identically
+    # and a --from-predictions rebuild picks it up without retraining.
+    preds = add_quantile_mean_column(preds, q_quantiles_cfg)
 
     # The *full* Phase-4 series (not the copy stored in the predictions parquet)
     # so the t-1 lag can reach the trading day before the OOS window opens.

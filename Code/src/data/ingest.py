@@ -39,6 +39,12 @@ from src.utils.logging import get_logger
 
 log = get_logger("ingest")
 
+#: Fallback alias -> yfinance ticker map, used only when a config predating the
+#: 2026-08-30 asset registry is loaded. The authoritative map is
+#: ``assets.registry`` in configs/data.yaml; see :func:`yfinance_symbol_map`.
+#: AAPL/TSLA are retained here (and nowhere else) because they are still cached
+#: in ``data/raw/yfinance/`` from before the RQ4 asset decision, so a re-pull of
+#: those files by alias keeps working.
 YFINANCE_SYMBOLS: dict[str, str] = {
     # alias -> yfinance ticker
     "GSPC": "^GSPC",
@@ -46,6 +52,44 @@ YFINANCE_SYMBOLS: dict[str, str] = {
     "AAPL": "AAPL",
     "TSLA": "TSLA",
 }
+
+
+def yfinance_symbol_map(cfg) -> dict[str, str]:
+    """Alias -> yfinance ticker for every asset in the config's registry.
+
+    Reading this from ``assets.registry`` rather than a module constant is the
+    point: an asset added to the registry becomes downloadable with no code
+    change, and the ticker the ingestor fetches is by construction the ticker the
+    modelling frame will later look for. The two used to be separate lists, which
+    is how the config could name AAPL and TSLA as the robustness assets long
+    after the plan-of-record had replaced them -- nothing read the config, so
+    nothing disagreed with it out loud.
+    """
+    assets = cfg.get("assets", None) if cfg is not None else None
+    registry = None if assets is None else assets.get("registry", None)
+    if not registry:
+        return dict(YFINANCE_SYMBOLS)
+    out = dict(YFINANCE_SYMBOLS)
+    out.update({
+        str(e["cache_alias"]): str(e["yfinance"]) for e in registry.values()
+    })
+    return out
+
+
+def resolve_primary_alias(cfg) -> str:
+    """Cache alias of the configured primary asset (``GSPC`` for this study).
+
+    Keeps the no-flag Phase-0 gate (``python -m src.data.ingest`` downloads the
+    S&P 500) reading its answer from the same registry as everything else.
+    """
+    assets = cfg.get("assets", None) if cfg is not None else None
+    registry = None if assets is None else assets.get("registry", None)
+    if not registry:
+        return "GSPC"
+    key = str(assets.get("primary", "SPX"))
+    if key not in registry:
+        return "GSPC"
+    return str(registry[key]["cache_alias"])
 
 
 # --------------------------------------------------------------------------- #
@@ -272,15 +316,27 @@ def _build_argparser() -> argparse.ArgumentParser:
             "plus a *.meta.json snapshot record."
         ),
     )
+    # No static ``choices=`` here, deliberately. The valid aliases come from
+    # ``assets.registry`` in the config, which is not loaded until after parsing
+    # (``--config`` is itself an argument), so a compile-time choice list can only
+    # ever be a stale copy -- which is exactly what it was: it rejected ``RUT``
+    # with "invalid choice" while the registry, the frame builder and the rest of
+    # this module all knew the alias perfectly well. :func:`main` validates the
+    # alias against the resolved map instead, and names the known aliases when it
+    # fails, so the error is better than argparse's as well as correct.
     p.add_argument(
         "--asset",
-        choices=sorted(YFINANCE_SYMBOLS.keys()),
-        help="Pull a single yfinance asset by alias.",
+        metavar="ALIAS",
+        help=(
+            "Pull a single yfinance asset by its cache alias (the "
+            "'cache_alias' of an entry in assets.registry, e.g. GSPC, VIX, "
+            "RUT, FTSE). Run with an unknown alias to list the valid ones."
+        ),
     )
     p.add_argument(
         "--all",
         action="store_true",
-        help="Pull all four yfinance symbols (^GSPC, ^VIX, AAPL, TSLA).",
+        help="Pull every yfinance asset declared in assets.registry.",
     )
     p.add_argument(
         "--oxfordman",
@@ -308,16 +364,24 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- yfinance ---------------------------------------------------------- #
     yf_ing = YFinanceIngestor(out_dir=yfinance_dir, start=str(start), end=str(end))
+    symbol_map = yfinance_symbol_map(cfg)
     targets: list[tuple[str, str]] = []
     if args.all:
-        targets = list(YFINANCE_SYMBOLS.items())
+        # Everything the registry names, so `--all` covers the Phase-8 assets the
+        # moment they are declared in configs/data.yaml.
+        targets = list(symbol_map.items())
     elif args.asset:
-        targets = [(args.asset, YFINANCE_SYMBOLS[args.asset])]
+        if args.asset not in symbol_map:
+            log.error("[yfinance] unknown alias %r; known: %s",
+                      args.asset, sorted(symbol_map))
+            return 2
+        targets = [(args.asset, symbol_map[args.asset])]
     elif not args.oxfordman:
         # Default behaviour: pull the primary asset, so the Phase 0 gate
         # ("python -m src.data.ingest downloads S&P 500 successfully") passes
         # without any flags.
-        targets = [("GSPC", YFINANCE_SYMBOLS["GSPC"])]
+        primary = resolve_primary_alias(cfg)
+        targets = [(primary, symbol_map[primary])]
 
     for alias, sym in targets:
         try:

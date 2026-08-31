@@ -28,6 +28,8 @@ on variance (Patton 2011) and GARCH forecasts variance natively.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
@@ -44,6 +46,80 @@ log = get_logger("datasets")
 VALID_TARGETS = ("yang_zhang", "oxfordman_rv5", "oxfordman_spliced")
 
 
+# --------------------------------------------------------------------------- #
+# Asset resolution (configs/data.yaml -> assets.registry)                      #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class AssetSpec:
+    """Everything the pipeline needs to know about one tradable asset.
+
+    An asset has three identifiers that are easy to confuse and were previously
+    held in three unreconciled places: the yfinance ticker (``^RUT``), the local
+    OHLC cache alias (``RUT.parquet``), and the Oxford-Man realized-measure
+    symbol (``.RUT``). It also carries two facts that decide what may legitimately
+    be run on it -- the trading ``session``, and whether the CBOE VIX is a valid
+    auxiliary feature for it. Resolving all five together, from one config block,
+    is what stops a Phase-8 profile from pairing one asset's returns with another
+    asset's realized variance.
+    """
+
+    key: str
+    yfinance: str
+    cache_alias: str
+    oxfordman: str | None
+    session: str
+    vix_feature: bool
+    description: str = ""
+
+
+#: Behaviour for a config predating ``assets.registry`` (2026-08-30). Every
+#: pre-Phase-8 call resolved to exactly this, so an old config still runs.
+_LEGACY_SPX = AssetSpec(
+    key="SPX", yfinance="^GSPC", cache_alias="GSPC", oxfordman=".SPX",
+    session="US", vix_feature=True, description="legacy default (no registry in config)",
+)
+
+
+def resolve_asset(cfg: DictConfig, key: str | None = None) -> AssetSpec:
+    """Resolve one asset key against ``assets.registry`` in ``configs/data.yaml``.
+
+    ``key=None`` returns the configured primary asset (``assets.primary``), which
+    is ``SPX`` -- so every existing call site keeps its exact behaviour. A config
+    with no ``assets.registry`` block falls back to :data:`_LEGACY_SPX`.
+
+    Raises ``KeyError`` naming the available keys when an asset is requested that
+    the registry does not define, rather than silently forecasting ``.SPX``.
+    """
+    assets = cfg.get("assets", None)
+    registry = None if assets is None else assets.get("registry", None)
+    if not registry:
+        if key not in (None, _LEGACY_SPX.key):
+            raise KeyError(
+                f"asset {key!r} requested but configs/data.yaml has no "
+                "'assets.registry' block to resolve it against"
+            )
+        return _LEGACY_SPX
+
+    name = str(key if key is not None else assets.get("primary", _LEGACY_SPX.key))
+    if name not in registry:
+        raise KeyError(
+            f"unknown asset {name!r}; assets.registry defines {sorted(registry)}"
+        )
+    e = registry[name]
+    om = e.get("oxfordman", None)
+    return AssetSpec(
+        key=name,
+        yfinance=str(e["yfinance"]),
+        cache_alias=str(e["cache_alias"]),
+        oxfordman=None if om is None else str(om),
+        session=str(e.get("session", "US")),
+        vix_feature=bool(e.get("vix_feature", False)),
+        description=str(e.get("description", "")),
+    )
+
+
 def load_ohlc(cfg: DictConfig, alias: str = "GSPC") -> pd.DataFrame:
     """Load cached daily OHLC(V) for one yfinance alias as a date-indexed frame."""
     path = repo_path(cfg.paths.yfinance, f"{alias}.parquet")
@@ -54,15 +130,25 @@ def load_ohlc(cfg: DictConfig, alias: str = "GSPC") -> pd.DataFrame:
 
 
 def realized_variance_target(
-    cfg: DictConfig, which: str, *, alias: str = "GSPC", yz_window: int = 21
+    cfg: DictConfig, which: str, *, alias: str = "GSPC", yz_window: int = 21,
+    symbol: str | None = None,
 ) -> pd.Series:
     """Return the daily realized-**variance** series for the requested proxy.
 
     Parameters
     ----------
     which : one of :data:`VALID_TARGETS`.
-    alias : yfinance alias for OHLC-based proxies (default the primary ^GSPC).
+    alias : yfinance cache alias for OHLC-based proxies (default the primary GSPC).
     yz_window : rolling window for the Yang-Zhang estimator.
+    symbol : Oxford-Man realized-measure symbol for ``oxfordman_rv5``. ``None``
+        (the default) uses ``cfg.oxfordman.primary_symbol``, which is what every
+        pre-Phase-8 caller got. Pass it explicitly -- or, better, let
+        :func:`build_econometric_frame` pass it from :func:`resolve_asset` -- to
+        forecast a different index. Before 2026-08-30 this was read from the
+        config unconditionally, so the target was pinned to ``.SPX`` no matter
+        whose returns and OHLC the rest of the frame carried: a Phase-8 profile
+        would have paired Russell 2000 returns with S&P 500 realized variance and
+        produced a plausible, meaningless table.
     """
     if which not in VALID_TARGETS:
         raise ValueError(f"unknown target {which!r}; choose from {VALID_TARGETS}")
@@ -74,8 +160,8 @@ def realized_variance_target(
 
     if which == "oxfordman_rv5":
         csv = repo_path(cfg.paths.oxfordman, cfg.oxfordman.filename)
-        sym = cfg.oxfordman.get("primary_symbol", ".SPX")
-        rv = load_oxfordman_symbol(csv, sym)["rv5"].astype(float)
+        sym = symbol if symbol is not None else cfg.oxfordman.get("primary_symbol", ".SPX")
+        rv = load_oxfordman_symbol(csv, str(sym))["rv5"].astype(float)
         return rv.rename("rv")[rv > 0].dropna()
 
     # oxfordman_spliced
@@ -94,21 +180,53 @@ def build_econometric_frame(
     cfg: DictConfig,
     *,
     target: str = "yang_zhang",
-    alias: str = "GSPC",
+    alias: str | None = None,
+    asset: str | None = None,
     include_vix: bool = False,
     yz_window: int = 21,
 ) -> pd.DataFrame:
-    """Build the aligned Phase 2 modelling frame for one target proxy.
+    """Build the aligned modelling frame for one asset and one target proxy.
 
-    Returns a frame indexed by trading date with columns ``log_return``, ``rv``
-    (variance target), ``rv_d/rv_w/rv_m`` (HAR lags) and optionally ``vix_close``.
-    Rows with any NaN (the ~22-day HAR warm-up at the start) are dropped, so every
-    model downstream sees a fully populated frame over an identical index.
+    Returns a frame indexed by trading date with columns ``log_return``,
+    ``oc_log_return``, ``rv`` (variance target), ``rv_d/rv_w/rv_m`` (HAR lags)
+    and optionally ``vix_close``. Rows with any NaN (the ~22-day HAR warm-up at
+    the start) are dropped, so every model downstream sees a fully populated
+    frame over an identical index.
+
+    Parameters
+    ----------
+    asset : registry key (see :func:`resolve_asset`). ``None`` resolves the
+        configured primary asset, so every pre-Phase-8 call keeps its behaviour.
+        Naming an asset resolves its OHLC alias, its Oxford-Man symbol and its
+        VIX eligibility together -- one decision instead of three that can drift.
+    alias : explicit OHLC cache alias, overriding the resolved one. Kept for
+        callers that want a proxy built from one asset's OHLC while naming
+        another; leave it unset in normal use.
+    include_vix : request the ``vix_close`` auxiliary column. It is joined only
+        when the resolved asset's ``vix_feature`` is true. For an asset where it
+        is false (a non-US index, where the CBOE VIX prices a different market's
+        options) the column is dropped with a warning rather than joined, because
+        the alternative is worse than a missing feature: the inner join below
+        would silently intersect two national trading calendars and shrink the
+        sample with no error anywhere.
+
+    Notes
+    -----
+    The frame is assembled with an inner join across sources, so the row count is
+    the *intersection* of every input's calendar. That is correct, and on ``.SPX``
+    it is invisible because all the sources share the NYSE calendar. On any other
+    asset it is a live risk, so the attrition is logged and recorded in
+    ``frame.attrs["join_attrition"]`` -- a sample silently 40 days short is the
+    kind of thing that is only ever noticed after the chapter is written.
     """
-    ohlc = load_ohlc(cfg, alias)
+    spec = resolve_asset(cfg, asset)
+    ohlc_alias = alias if alias is not None else spec.cache_alias
+    ohlc = load_ohlc(cfg, ohlc_alias)
     close = ohlc["close"].rename("close")
 
-    rv = realized_variance_target(cfg, target, alias=alias, yz_window=yz_window)
+    rv = realized_variance_target(
+        cfg, target, alias=ohlc_alias, yz_window=yz_window, symbol=spec.oxfordman
+    )
 
     # Open-to-close log return. Offered alongside the (default) close-to-close
     # return so GARCH/EGARCH can be matched to an *open-to-close* intraday RV
@@ -124,16 +242,58 @@ def build_econometric_frame(
         rv,                          # realized-variance target
         har_lagged_rv(rv),           # HAR daily/weekly/monthly lags
     ]
+    vix_joined = False
     if include_vix:
-        vix = load_ohlc(cfg, "VIX")["close"].rename("vix_close")
-        parts.append(vix)
+        if spec.vix_feature:
+            vix_spec = resolve_asset(cfg, cfg.get("assets", {}).get("vix", "VIX"))
+            parts.append(load_ohlc(cfg, vix_spec.cache_alias)["close"].rename("vix_close"))
+            vix_joined = True
+        else:
+            log.warning(
+                "VIX column requested for asset %s (%s session) but "
+                "assets.registry marks it vix_feature=false -- not joining. The "
+                "CBOE VIX prices S&P 500 options, so it is not an auxiliary "
+                "feature for this market, and joining it would intersect two "
+                "trading calendars and shrink the sample silently.",
+                spec.key, spec.session,
+            )
 
+    # Row counts BEFORE the join, so calendar attrition is separable from the
+    # HAR warm-up. `rv` is the reference: it is the target, and every other part
+    # is only useful on days the target exists.
+    n_rv = int(len(rv))
     frame = pd.concat(parts, axis=1, join="inner")
+    n_joined = int(len(frame))
     frame = frame.replace([np.inf, -np.inf], np.nan).dropna(how="any")
     frame.index.name = "date"
+    n_final = int(len(frame))
+
+    frame.attrs["asset"] = spec.key
+    frame.attrs["oxfordman_symbol"] = spec.oxfordman
+    frame.attrs["ohlc_alias"] = ohlc_alias
+    frame.attrs["session"] = spec.session
+    frame.attrs["vix_joined"] = vix_joined
+    frame.attrs["join_attrition"] = {
+        "n_target_rows": n_rv,
+        "n_after_join": n_joined,
+        "n_after_dropna": n_final,
+        "lost_to_join": n_rv - n_joined,
+        "lost_to_warmup_or_nan": n_joined - n_final,
+    }
 
     log.info(
-        "econometric frame [target=%s, asset=%s]: %d rows %s -> %s",
-        target, alias, len(frame), frame.index.min().date(), frame.index.max().date(),
+        "modelling frame [asset=%s target=%s ohlc=%s om=%s vix=%s]: "
+        "%d rows %s -> %s  (target had %d; %d lost to the calendar join, "
+        "%d to warm-up/NaN)",
+        spec.key, target, ohlc_alias, spec.oxfordman, vix_joined,
+        n_final, frame.index.min().date(), frame.index.max().date(),
+        n_rv, n_rv - n_joined, n_joined - n_final,
     )
+    if n_rv and (n_rv - n_joined) / n_rv > 0.02:
+        log.warning(
+            "calendar join dropped %.1f%% of %s's target days (%d of %d). Check "
+            "that every source shares this asset's trading calendar before "
+            "reporting any sample size.",
+            100.0 * (n_rv - n_joined) / n_rv, spec.key, n_rv - n_joined, n_rv,
+        )
     return frame

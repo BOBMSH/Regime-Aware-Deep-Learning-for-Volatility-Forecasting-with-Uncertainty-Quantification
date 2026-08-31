@@ -87,3 +87,71 @@ def test_bst_summer_dates_are_not_shifted(tmp_path):
     got = list(df.index.strftime("%Y-%m-%d"))
     assert got == ["2020-01-06", "2020-06-01", "2020-06-02", "2020-06-03"], got
     assert (df.index.dayofweek < 5).all()  # no BST row pushed onto a weekend
+
+
+class TestAssetAliasCLI:
+    """The ``--asset`` alias must come from the config, not a compile-time list.
+
+    Regression guard for a real failure on 2026-08-30: the asset registry was
+    wired into the download *dispatch* but ``--asset`` kept
+    ``choices=sorted(YFINANCE_SYMBOLS)`` — a module constant evaluated when the
+    parser is built, long before ``--config`` has been read. ``--asset RUT`` was
+    rejected with argparse's "invalid choice: 'RUT' (choose from 'AAPL', 'GSPC',
+    'TSLA', 'VIX')" even though the registry, the frame builder and the symbol
+    map all resolved it fine. A static choice list over config-driven values can
+    only ever be a stale copy of them.
+
+    The lesson generalises past this flag: importing cleanly and compiling
+    cleanly is not the same as running. These tests drive the parser and the
+    resolver the way the command line does.
+    """
+
+    def test_parser_accepts_a_registry_alias(self):
+        from src.data.ingest import _build_argparser
+
+        args = _build_argparser().parse_args(["--asset", "RUT"])
+        assert args.asset == "RUT"
+
+    def test_parser_accepts_any_alias_and_defers_validation(self):
+        """Parsing must not adjudicate aliases; ``main`` does, against the config."""
+        from src.data.ingest import _build_argparser
+
+        assert _build_argparser().parse_args(["--asset", "FTSE"]).asset == "FTSE"
+        # An unknown alias parses too — and is rejected later, with a better message.
+        assert _build_argparser().parse_args(["--asset", "NOPE"]).asset == "NOPE"
+
+    def test_asset_flag_declares_no_static_choices(self):
+        """Pin the cause, not just the symptom."""
+        from src.data.ingest import _build_argparser
+
+        action = next(a for a in _build_argparser()._actions
+                      if "--asset" in getattr(a, "option_strings", []))
+        assert action.choices is None
+
+    def test_symbol_map_covers_every_registry_alias(self):
+        from omegaconf import OmegaConf
+
+        from src.data.ingest import yfinance_symbol_map
+
+        cfg = OmegaConf.create({
+            "assets": {"primary": "SPX", "registry": {
+                "SPX": {"yfinance": "^GSPC", "cache_alias": "GSPC"},
+                "RUT": {"yfinance": "^RUT", "cache_alias": "RUT"},
+                "FTSE": {"yfinance": "^FTSE", "cache_alias": "FTSE"},
+                "VIX": {"yfinance": "^VIX", "cache_alias": "VIX"},
+            }},
+        })
+        m = yfinance_symbol_map(cfg)
+        assert m["RUT"] == "^RUT" and m["FTSE"] == "^FTSE" and m["GSPC"] == "^GSPC"
+
+    def test_primary_alias_comes_from_the_registry(self):
+        from omegaconf import OmegaConf
+
+        from src.data.ingest import resolve_primary_alias
+
+        cfg = OmegaConf.create({
+            "assets": {"primary": "SPX", "registry": {
+                "SPX": {"yfinance": "^GSPC", "cache_alias": "GSPC"}}},
+        })
+        assert resolve_primary_alias(cfg) == "GSPC"
+        assert resolve_primary_alias(OmegaConf.create({})) == "GSPC"

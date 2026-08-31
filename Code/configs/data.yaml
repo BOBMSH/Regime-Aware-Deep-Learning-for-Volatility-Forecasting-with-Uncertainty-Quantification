@@ -12,12 +12,62 @@ window:
   end: "2024-12-31"
 
 # --- Assets -----------------------------------------------------------------
+# THE ASSET REGISTRY IS THE SINGLE SOURCE OF TRUTH (added 2026-08-30).
+#
+# Before this, an asset's identity was spread across three places that nothing
+# reconciled: this block (which no code read at all), `oxfordman.primary_symbol`
+# below, and a hardcoded `YFINANCE_SYMBOLS` dict in src/data/ingest.py. That is
+# how `robustness: [AAPL, TSLA]` survived here for a week after the RQ4 decision
+# replaced it -- a stale value in a block with no consumer is invisible.
+#
+# Every asset now resolves through `registry` via `src.data.datasets.resolve_asset`,
+# which returns all three identifiers plus the two facts that decide what may be
+# run on it. `session` and `vix_feature` are not documentation: `vix_feature`
+# gates whether the VIX auxiliary column is joined at all (see below), so a
+# cross-market mistake is refused by the data path rather than left to be noticed
+# in a results table.
 assets:
-  primary: "^GSPC"            # S&P 500 -- every experiment runs here
-  vix: "^VIX"                 # treated as a feature, not a target
-  robustness:                 # baselines + best DL only (Phase 8)
-    - "AAPL"
-    - "TSLA"
+  primary: SPX                # registry key -- every experiment runs here
+  vix: VIX                    # treated as a feature, not a target
+  robustness: [RUT, FTSE]     # Phase 8 / RQ4 -- decided 2026-08-23 (vii)
+
+  registry:
+    SPX:
+      yfinance: "^GSPC"       # daily OHLC ticker (GARCH returns, Yang-Zhang)
+      cache_alias: "GSPC"     # data/raw/yfinance/<alias>.parquet
+      oxfordman: ".SPX"       # realized-measure symbol in the Oxford-Man CSV
+      session: "US"
+      vix_feature: true       # the VIX prices S&P 500 options -> a valid auxiliary input
+      description: "S&P 500 -- the primary asset for every phase."
+    RUT:
+      yfinance: "^RUT"
+      cache_alias: "RUT"
+      oxfordman: ".RUT"
+      session: "US"
+      vix_feature: true       # same session and same option market as .SPX
+      description: "Russell 2000 -- RQ4 robustness asset: US small-cap, same session."
+    FTSE:
+      yfinance: "^FTSE"
+      cache_alias: "FTSE"
+      oxfordman: ".FTSE"
+      session: "UK"
+      # FALSE, deliberately. The VIX prices S&P 500 options, so feeding it to a
+      # FTSE model is not the "auxiliary feature" ablation Ch1 sec1.8 describes --
+      # it is a cross-market spillover experiment, a different question the study
+      # does not pose. It would also silently shrink the sample: the modelling
+      # frame is assembled with an inner join, so intersecting the LSE calendar
+      # with the US holiday calendar drops days with no error. The UK analogue
+      # (VFTSE) is not in the data. The LSTM-VIX ablation is therefore not run on
+      # this asset, and `build_econometric_frame` refuses to join the column.
+      vix_feature: false
+      description: "FTSE 100 -- RQ4 robustness asset: different market and session."
+    VIX:
+      yfinance: "^VIX"
+      cache_alias: "VIX"
+      oxfordman: null         # no realized measure -- the VIX is a feature, never a target
+      session: "US"
+      vix_feature: false
+      description: "CBOE Volatility Index -- auxiliary feature only, never a target."
 
 # --- Walk-forward splits ----------------------------------------------------
 # Anchored: train = [t0, t], predict t+1, expand window.
@@ -67,7 +117,10 @@ paths:
 # to printing manual-download instructions.
 oxfordman:
   filename: "oxfordmanrealizedvolatilityindices.csv"
-  # Primary index symbol used by the library for the S&P 500.
+  # Fallback symbol only. The authoritative per-asset symbol is
+  # `assets.registry.<key>.oxfordman`; this is what `realized_variance_target`
+  # uses when no asset is named, which keeps every pre-Phase-8 call site on
+  # `.SPX` with identical behaviour.
   primary_symbol: ".SPX"
   # `id_` suffix on the wayback timestamp returns the raw archived file with
   # no wayback HTML wrapper. The 2022-03-01 snapshot is the last full capture
