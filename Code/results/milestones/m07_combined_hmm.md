@@ -33,12 +33,12 @@ Recorded in `ROADMAP.md` **before** this phase was run: *Kupiec should reject de
 | 3 | LSTM-RVonly | deep | 0.2596 | 0.2331 | 4.021e-08 | 6.058e-05 |  |  |  |  | 784 |
 | 4 | Regime-LSTM-A-RVonly | regime-aware deep | 0.2617 | 0.2271 | 4.2e-08 | 6.507e-05 |  |  |  |  | 784 |
 | 5 | Regime-LSTM-A | regime-aware deep | 0.2627 | 0.2049 | 4.035e-08 | 5.813e-05 |  |  |  |  | 784 |
-| 6 | LSTM-Gaussian | uncertainty-aware deep | 0.2650 | 0.2043 | 4.485e-08 | 5.863e-05 | 0.8635 | 0.0001801 | 0.0004198 | 4.306e-05 | 784 |
+| 6 | LSTM-Gaussian | uncertainty-aware deep | 0.2650 | 0.2043 | 4.485e-08 | 5.863e-05 | 0.8635 | 0.0001801 | 0.0004198 | 4.301e-05 | 784 |
 | 7 | LSTM | deep | 0.2650 | 0.2043 | 4.485e-08 | 5.863e-05 |  |  |  |  | 784 |
 | 8 | MC-Dropout-LSTM | uncertainty-aware deep | 0.2652 | 0.2044 | 4.494e-08 | 5.874e-05 | 0.8648 | 0.0001818 | 0.0004199 | 4.306e-05 | 784 |
 |  | Quantile-LSTM-mean | sensitivity (retransformed point) | 0.2742 | 0.2051 | 4.42e-08 | 5.634e-05 |  |  |  |  | 784 |
 | 9 | HAR-RV | econometric | 0.2745 | 0.2409 | 4.176e-08 | 6.046e-05 |  |  |  |  | 784 |
-| 10 | Quantile-LSTM | uncertainty-aware deep | 0.3216 | 0.2279 | 5.131e-08 | 5.73e-05 | 0.8214 | 0.0001598 | 0.0004317 | 4.306e-05 | 784 |
+| 10 | Quantile-LSTM | uncertainty-aware deep | 0.3216 | 0.2279 | 5.131e-08 | 5.73e-05 | 0.8214 | 0.0001598 | 0.0004317 |  | 784 |
 | 11 | GARCH | econometric | 0.3302 | 0.2907 | 5.625e-08 | 7.172e-05 |  |  |  |  | 784 |
 | 12 | EGARCH | econometric | 0.3328 | 0.2778 | 5.666e-08 | 6.902e-05 |  |  |  |  | 784 |
 | 13 | RW-RV | econometric | 0.3584 | 0.2810 | 5.284e-08 | 6.579e-05 |  |  |  |  | 784 |

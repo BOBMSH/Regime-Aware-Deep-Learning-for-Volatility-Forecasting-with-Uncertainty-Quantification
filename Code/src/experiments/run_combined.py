@@ -271,6 +271,83 @@ def profile_hint(base: pd.DataFrame) -> str:
         return "the baseline predictions"
 
 
+LOGNORMAL_CRPS = "log-normal closed form"
+
+
+def lognormal_law(frame: pd.DataFrame, method: str):
+    """The ``(mu, sigma)`` of *method*'s predictive law on log variance, or ``None``.
+
+    Every interval-bearing method carries its **own** predictive law, and a CRPS
+    is only that method's CRPS if it is computed from that law. Until 2026-09-01
+    this was not enforced: :func:`master_table` read ``mc_mu_log`` /
+    ``mc_sigma_log`` off whatever frame it happened to be handed, regardless of
+    which method the interval belonged to -- and ``MC-Dropout-LSTM``,
+    ``LSTM-Gaussian`` and ``Quantile-LSTM`` are all passed the *same* Phase-6
+    frame. All three therefore published MC-Dropout's CRPS
+    (4.3058928982516726e-05) rather than their own 4.3058929e-05 / 4.3014955e-05
+    / 3.5498179e-05. Phase 6's own :func:`~src.experiments.run_uq.crps_table`
+    had it right throughout; only the Phase-7 master table was wrong, which is
+    exactly the artefact Chapter 4's headline table is built from.
+
+    The laws:
+
+    * ``MC-Dropout-LSTM`` and ``MC-Dropout-Regime-LSTM-B`` -- the MC predictive
+      moments, persisted as ``mc_mu_log`` / ``mc_sigma_log``.
+    * ``LSTM-Gaussian`` -- the dropout-off mean with an aleatoric-only spread.
+      Phase 7 persists the log-space mean as ``mc_mu_log_det``; Phase 6 persists
+      only the point on the variance scale, so the log-space mean is recovered
+      as ``log(point) - sigma^2 / 2``, which is what ``run_uq.crps_table`` does.
+    * ``Quantile-LSTM`` -- **None**. A pinball head asserts no distribution, so
+      it has no closed-form CRPS at all. Its grid-approximated value, and the
+      ``(same grid)`` comparators that make it comparable to the parametric
+      methods, live in ``m06_*_crps.csv``; putting a trapezoidal number in the
+      same column as three closed-form ones would recreate the defect in a
+      subtler form.
+    """
+    cols = set(frame.columns)
+    if method in (MC_NAME, COMBINED_NAME):
+        if {"mc_mu_log", "mc_sigma_log"} <= cols:
+            return frame["mc_mu_log"].astype(float), frame["mc_sigma_log"].astype(float)
+        return None
+    if method == GAUSS_NAME:
+        if "mc_sd_aleatoric" not in cols:
+            return None
+        sd = frame["mc_sd_aleatoric"].astype(float)
+        if "mc_mu_log_det" in cols:
+            return frame["mc_mu_log_det"].astype(float), sd
+        if method in cols:
+            # Recover the log-space mean on ndarrays, in exactly the order
+            # run_uq.crps_table uses, so the two tables agree bit-for-bit rather
+            # than in the 16th digit -- a gratuitous discrepancy between two
+            # published numbers for the same quantity is its own defect.
+            mu = (np.log(frame[method].to_numpy(dtype=float))
+                  - 0.5 * sd.to_numpy(dtype=float) ** 2)
+            return pd.Series(mu, index=frame.index), sd
+        return None
+    return None
+
+
+def assert_crps_distinct(table: pd.DataFrame) -> None:
+    """Refuse a master table in which two models share a bit-identical CRPS.
+
+    The 2026-09-01 defect was invisible in review precisely because a wrong
+    number looks like a number. Two distinct predictive laws agreeing to all 17
+    significant digits of a float64 does not happen; one frame's law being
+    broadcast across several rows does. This makes the fix executable rather
+    than merely intended -- the same lesson as the config block nothing read.
+    """
+    if "crps" not in table.columns:
+        return
+    sub = table.loc[table["crps"].notna(), ["model", "crps"]]
+    dup = sub[sub.duplicated("crps", keep=False)]
+    if not dup.empty:
+        rows = ", ".join(f"{m}={c!r}" for m, c in zip(dup["model"], dup["crps"]))
+        raise ValueError(
+            "two models report an identical CRPS, which means one method's "
+            f"predictive law was used for another's row: {rows}"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Tables                                                                       #
 # --------------------------------------------------------------------------- #
@@ -288,6 +365,11 @@ def master_table(preds: pd.DataFrame, base: pd.DataFrame, uqp: pd.DataFrame,
     Columns: pooled QLIKE / MSE / MAE; transitional-bucket QLIKE on the t-1
     label (the bucket RQ2's effect lives in); and, for models that produce a
     predictive distribution, PICP / MPIW / Winkler / CRPS at the headline level.
+    ``crps`` is the closed-form log-normal score computed from each method's
+    **own** predictive law (:func:`lognormal_law`), and ``crps_estimator``
+    names it; a method asserting no distribution -- the pinball head -- gets a
+    blank cell rather than a number produced by a different estimator, and its
+    grid-approximated CRPS is read from ``m06_*_crps.csv`` instead.
     Models without intervals get NaN there rather than being dropped -- the
     comparison is the point of the table.
 
@@ -333,13 +415,16 @@ def master_table(preds: pd.DataFrame, base: pd.DataFrame, uqp: pd.DataFrame,
         bits = {"picp": float(inside.mean()), "mpiw": float((hi - lo).mean()),
                 "winkler": float((hi - lo + pen).mean()),
                 "coverage_error": float(inside.mean() - level)}
-        # CRPS in closed form wherever the predictive law is log-normal.
-        for mu_c, sd_c in (("mc_mu_log", "mc_sigma_log"),):
-            if mu_c in frame.columns and sd_c in frame.columns:
-                sub = frame.loc[j.index]
-                bits["crps"] = crps_lognormal(j["y"].to_numpy(float),
-                                              sub[mu_c].to_numpy(float),
-                                              sub[sd_c].to_numpy(float))
+        # CRPS in closed form from THIS method's own predictive law (see
+        # lognormal_law); blank where the method asserts no distribution, so
+        # every value in the column is computed the same way and comparable.
+        law = lognormal_law(frame, method)
+        if law is not None:
+            mu = law[0].reindex(j.index).to_numpy(float)
+            sd = law[1].reindex(j.index).to_numpy(float)
+            if np.isfinite(mu).all() and np.isfinite(sd).all():
+                bits["crps"] = crps_lognormal(j["y"].to_numpy(float), mu, sd)
+                bits["crps_estimator"] = LOGNORMAL_CRPS
         return bits
 
     def _row(name: str, point: pd.Series, frame: pd.DataFrame | None,
@@ -354,7 +439,8 @@ def master_table(preds: pd.DataFrame, base: pd.DataFrame, uqp: pd.DataFrame,
                                       if int(m.sum()) > 0 else np.nan),
                "n_transitional": int(m.sum())}
         rec.update({"picp": np.nan, "mpiw": np.nan, "winkler": np.nan,
-                    "coverage_error": np.nan, "crps": np.nan})
+                    "coverage_error": np.nan, "crps": np.nan,
+                    "crps_estimator": ""})
         if frame is not None and method is not None:
             rec.update(_interval_bits(frame, method))
         return rec
@@ -383,6 +469,7 @@ def master_table(preds: pd.DataFrame, base: pd.DataFrame, uqp: pd.DataFrame,
     out.attrs["regime_shift"] = int(DEFAULT_REGIME_SHIFT)
     out.attrs["level"] = float(level)
     out.attrs["n_ranked_models"] = int(is_ranked.sum())
+    assert_crps_distinct(out)
     return out
 
 
