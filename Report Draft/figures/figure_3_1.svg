@@ -43,25 +43,28 @@
 <text x="744.0" y="238.25" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">lagged log RV, returns, auxiliary column</text>
 <rect x="332" y="336" width="588" height="56" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="626.0" y="360.75" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">State model  →  filtered posterior  ξₜ</text>
-<text x="626.0" y="376.25" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">estimated on training rows only; Equation 3.2</text>
+<text x="626.0" y="376.25" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">fitted on training rows only, never refit; Equation 3.2</text>
 <rect x="182" y="470" width="234" height="104" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="299.0" y="511.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Econometric baselines</text>
 <text x="299.0" y="526.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">GARCH(1,1) · EGARCH</text>
 <text x="299.0" y="542.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">HAR-RV · random walk</text>
+<text x="299.0" y="561.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-style="italic" fill="#4a4a4a">refit monthly, expanding window</text>
 <rect x="434.0" y="470" width="234" height="104" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="551.0" y="511.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Unconditional network</text>
 <text x="551.0" y="526.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">LSTM, no regime input</text>
 <text x="551.0" y="542.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">(the control)</text>
+<text x="551.0" y="561.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-style="italic" fill="#4a4a4a">fitted once, then frozen</text>
 <rect x="686.0" y="470" width="234" height="104" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="803.0" y="511.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Regime-conditioned network</text>
 <text x="803.0" y="526.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">A: regime as feature</text>
 <text x="803.0" y="542.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">B: mixture of experts</text>
+<text x="803.0" y="561.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-style="italic" fill="#4a4a4a">fitted once, then frozen</text>
 <rect x="182" y="640" width="738" height="56" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="551.0" y="664.75" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Predictive distribution</text>
 <text x="551.0" y="680.25" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">MC dropout · quantile head; retransformed to the mean scale (Eq. 3.4)</text>
 <rect x="182" y="766" width="234" height="94" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="299.0" y="802.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Point accuracy</text>
-<text x="299.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">QLIKE (Eq. 3.5) · MSE</text>
+<text x="299.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">QLIKE (Eq. 3.6) · MSE</text>
 <text x="299.0" y="833.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">Diebold–Mariano · MCS</text>
 <rect x="434.0" y="766" width="234" height="94" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="551.0" y="802.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">State dependence</text>
@@ -69,8 +72,9 @@
 <text x="551.0" y="833.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">per-regime losses</text>
 <rect x="686.0" y="766" width="234" height="94" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="803.0" y="802.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Interval quality</text>
-<text x="803.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">PICP · MPIW · Winkler</text>
-<text x="803.0" y="833.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">CRPS · Eq. 3.6</text>
+<text x="803.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">PICP · MPIW · Winkler · CRPS</text>
+<text x="803.0" y="833.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">coverage difference (Eq. 3.7)</text>
+<text x="803.0" y="848.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">Kupiec · Christoffersen · DQ</text>
 <path d="M 358.0 122 L 358.0 193" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
 <path d="M 744.0 122 L 744.0 193" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
 <path d="M 540 226.0 L 565 226.0" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
@@ -100,5 +104,5 @@
 <circle cx="803.0" cy="726" r="2.6" fill="#1a1a1a"/>
 <path d="M 803.0 726 L 803.0 763" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
 <path d="M 24 316 L 16 316 L 16 716 L 24 716" fill="none" stroke="#4a4a4a" stroke-width="1"/>
-<text x="11" y="516.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11.5" fill="#4a4a4a" transform="rotate(-90 11 516.0)">re-estimated at every walk-forward origin</text>
+<text x="11" y="516.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11.5" fill="#4a4a4a" transform="rotate(-90 11 516.0)">anchored walk-forward over the test block</text>
 </svg>
