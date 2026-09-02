@@ -484,7 +484,15 @@ def _fmt(df: pd.DataFrame, cols=None, nd: int = 6) -> str:
     """Markdown table, floats to ``nd`` significant figures, missing left blank."""
     if df is None or not len(df):
         return "_(not available)_\n"
-    sub = df[[c for c in (cols or df.columns) if c in df.columns]].copy()
+    wanted = list(cols or df.columns)
+    missing = [c for c in wanted if c not in df.columns]
+    if missing:
+        # Silently dropping a requested column is how a number goes missing from
+        # a note while the CSV still has it -- which is exactly what happened to
+        # the per-asset persistence figures on 2026-09-02.
+        log.warning("milestone table omits %s: not in the frame (have %s)",
+                    missing, list(df.columns))
+    sub = df[[c for c in wanted if c in df.columns]].copy()
     for c in sub.columns:
         if pd.api.types.is_float_dtype(sub[c]):
             sub[c] = sub[c].map(lambda v: "" if pd.isna(v) else f"{v:.{nd}g}")
@@ -584,7 +592,7 @@ def write_milestone(ctx: dict, verdict_tbl: pd.DataFrame, out_path: Path,
 
     L.append("\n## Each asset's own regime model\n\n")
     L.append(_fmt(ctx["regimes"], ["asset", "selected_lambda",
-                                   "selected_mean_duration_days",
+                                   "test_mean_duration_days", "test_switches",
                                    "bic_preferred_K_hmm", "bic_preferred_K_jump",
                                    "n_evaluated", "n_labelled_at_t_minus_1",
                                    *[f"n_{lab}" for lab in labels]], nd=4))
@@ -686,7 +694,10 @@ def main(argv: list[str] | None = None) -> int:
     log.info("tables written: %s", ", ".join(written))
 
     write_milestone(ctx, verdict_tbl,
-                    milestone_path(cfg, "m08_rq4.md", "rq4"),
+                    # `key` is this phase's own, NOT the deep config's
+                    # `milestone_file` -- see milestone_path's docstring.
+                    milestone_path(cfg, "m08_rq4.md", "rq4",
+                                   key="rq4_milestone_file"),
                     alpha=args.alpha)
 
     for r in verdict_tbl.to_dict("records"):

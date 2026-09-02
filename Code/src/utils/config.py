@@ -95,7 +95,8 @@ def repo_path(*parts: str) -> Path:
     return REPO_ROOT.joinpath(*parts)
 
 
-def milestone_path(cfg, default: str, profile_name: str, *, n_profiles: int = 1) -> Path:
+def milestone_path(cfg, default: str, profile_name: str, *, n_profiles: int = 1,
+                   key: str = "milestone_file") -> Path:
     """Resolve where one profile's milestone note is written.
 
     Two things this settles that were previously left to luck.
@@ -121,9 +122,19 @@ def milestone_path(cfg, default: str, profile_name: str, *, n_profiles: int = 1)
     profile_name : substituted into a ``{profile}`` placeholder.
     n_profiles : how many profiles this run will write. Only used to decide
         whether a placeholder is mandatory.
+    key : which ``paths`` field names the file. Defaults to ``milestone_file``,
+        which belongs to *the runner the config was written for*. A runner that
+        reads **another phase's** config must pass its own key, or it inherits a
+        name meant for something else: ``run_rq4`` reads
+        ``configs/regime_lstm_rq4.yaml`` to learn the robustness profiles, and on
+        2026-09-02 it wrote the RQ4 note to ``m08_regime_dl_rq4.md`` -- the
+        Phase-5 naming pattern -- because it picked up that file's
+        ``milestone_file``. It now passes ``key="rq4_milestone_file"``, which no
+        config sets, so it falls back to its own default and a reader can still
+        override it deliberately.
     """
     paths = cfg.paths
-    name = str(paths.get("milestone_file") or default)
+    name = str(paths.get(key) or default)
     if "{profile}" in name:
         name = name.format(profile=profile_name)
     elif int(n_profiles) > 1:

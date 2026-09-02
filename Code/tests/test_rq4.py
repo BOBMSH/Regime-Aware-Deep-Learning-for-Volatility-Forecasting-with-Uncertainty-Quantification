@@ -784,3 +784,18 @@ def test_a_missing_selected_lambda_is_warned_about_not_silently_dropped(tmp_path
     row = R._regime_summary("missing", tmp_path, state, idx, ["calm", "transitional", "crisis"])
     assert "selected_lambda" not in row
     assert any("no selected lambda" in r.getMessage() for r in records)
+
+
+def test_run_rq4_does_not_inherit_the_deep_configs_milestone_name():
+    """`run_rq4` reads `regime_lstm_rq4.yaml` to learn the profiles, and that
+    file's `milestone_file` belongs to `run_regime_lstm`. Inheriting it sent the
+    RQ4 note to `m08_regime_dl_rq4.md` on the first real run."""
+    cfg = load_config("regime_lstm_rq4")
+    assert str(cfg.paths.milestone_file) == "m08_regime_dl_{profile}.md"
+    got = milestone_path(cfg, "m08_rq4.md", "rq4", key="rq4_milestone_file")
+    assert got.name == "m08_rq4.md"
+    # and the per-profile runner still gets its own names from the same config
+    for profile in cfg.profiles:
+        assert milestone_path(cfg, "m05_regime_dl.md", str(profile.name),
+                              n_profiles=len(cfg.profiles)).name == \
+            f"m08_regime_dl_{profile.name}.md"

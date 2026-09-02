@@ -638,6 +638,39 @@ would look like an oversight if a reader met it undeclared.
 
 ## Changelog
 
+### 2026-09-02 (x.3) — Phase 8 complete; the last two defects were in the fixes
+
+Everything re-ran clean. **The headline Phase-2 note is restored and every
+headline number reproduced exactly** after the re-run — HAR-RV 0.274490, GARCH
+0.330171, EGARCH 0.332751, RW-RV 0.358432, and the Phase-5 board still reads
+HAR-RV 0.274490 / Regime-LSTM-B 0.262115. `m08_econometric_rq4.md` and
+`m08_loghar_sensitivity.md` now exist, and `m08_rq4_regimes.csv` carries the
+selected penalty: **λ = 3.0 on all three assets**, with test-window persistence
+of 15.1 days (`.SPX`), 19.2 (`.RUT`) and 12.6 (`.FTSE`).
+
+**Two defects, both introduced by the previous round of fixes.**
+
+1. **`run_rq4` inherited another phase's milestone name.** It reads
+   `configs/regime_lstm_rq4.yaml` to learn the robustness profiles, so routing it
+   through `milestone_path` also picked up that file's
+   `milestone_file: m08_regime_dl_{profile}.md` — and the RQ4 note was written to
+   `m08_regime_dl_rq4.md`, under the Phase-5 naming pattern, while `m08_rq4.md`
+   stayed stale. `milestone_path` now takes a `key=` parameter and `run_rq4`
+   passes its own, so a runner reading another phase's config cannot inherit
+   output naming meant for that phase.
+2. **The note asked for a column the row does not carry.** `_regime_summary` now
+   emits `test_mean_duration_days`; the milestone still asked for
+   `selected_mean_duration_days`, and `_fmt` dropped it silently — so the
+   per-asset persistence figures reached the CSV and not the note. Column names
+   fixed, and `_fmt` now warns when a requested column is absent, because a
+   silently dropped column is how this project loses a number.
+
+Suite **399**.
+
+**Outstanding: one command and one deletion.** `run_rq4` again (seconds, reads
+only) to write `m08_rq4.md` with the persistence columns; then delete the
+misplaced `results/milestones/m08_regime_dl_rq4.md`.
+
 ### 2026-09-02 (x.2) — RQ4 has an answer; three defects found by running it
 
 **RQ4 answered.** `.RUT` **replicates** (Regime-LSTM-B QLIKE 0.2143 vs HAR-RV
