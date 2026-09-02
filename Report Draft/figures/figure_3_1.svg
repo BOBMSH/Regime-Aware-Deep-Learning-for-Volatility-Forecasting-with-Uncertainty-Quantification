@@ -64,7 +64,7 @@
 <text x="551.0" y="680.25" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">MC dropout · quantile head; retransformed to the mean scale (Eq. 3.4)</text>
 <rect x="182" y="766" width="234" height="94" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="299.0" y="802.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Point accuracy</text>
-<text x="299.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">QLIKE (Eq. 3.6) · MSE</text>
+<text x="299.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">QLIKE (Eq. 3.7) · MSE</text>
 <text x="299.0" y="833.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">Diebold–Mariano · MCS</text>
 <rect x="434.0" y="766" width="234" height="94" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="551.0" y="802.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">State dependence</text>
@@ -73,7 +73,7 @@
 <rect x="686.0" y="766" width="234" height="94" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="803.0" y="802.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Interval quality</text>
 <text x="803.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">PICP · MPIW · Winkler · CRPS</text>
-<text x="803.0" y="833.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">coverage difference (Eq. 3.7)</text>
+<text x="803.0" y="833.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">coverage difference (Eq. 3.8)</text>
 <text x="803.0" y="848.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">Kupiec · Christoffersen · DQ</text>
 <path d="M 358.0 122 L 358.0 193" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
 <path d="M 744.0 122 L 744.0 193" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
