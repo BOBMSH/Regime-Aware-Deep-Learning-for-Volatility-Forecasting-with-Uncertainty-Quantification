@@ -1,5 +1,6 @@
 # =============================================================================
-#  rerun_all.ps1  --  regenerate Phases 2 -> 7 in ONE Python environment.
+#  rerun_all.ps1  --  regenerate Phases 2 -> 8 in ONE Python environment, then
+#                     verify both the provenance and the published values.
 #
 #  WHY THIS EXISTS (audit vii, 2026-08-23)
 #  ---------------------------------------
@@ -14,9 +15,16 @@
 #
 #  WHAT TO EXPECT
 #  --------------
-#  * Runtime is roughly 45-75 minutes on CPU, unattended. Phase 3's 18-config
-#    hyperparameter sweep is the bulk of it; pass -NoSweep to skip it (the
-#    sweep table and heatmap then keep their old provenance).
+#  * Runtime is roughly 45-75 minutes for Phases 2-7 on CPU, unattended. Phase 3's
+#    18-config hyperparameter sweep is the bulk of it; pass -NoSweep to skip it
+#    (the sweep table and heatmap then keep their old provenance). Phase 8 adds
+#    the two RQ4 assets, and the refit sensitivity retrains at every walk-forward
+#    origin rather than once, so budget well over an hour for the full script.
+#  * TWO GATES RUN AT THE END, and both must pass. The first checks PROVENANCE --
+#    one interpreter throughout, and Phase 7 inheriting Phase 5's fitted model.
+#    The second (`verify_claims`) checks VALUES: every published metric recomputed
+#    from the prediction parquets by code that imports nothing from
+#    src.evaluation. Together they are the submission gate.
 #  * THE PUBLISHED NUMBERS WILL MOVE SLIGHTLY. m03/m05/m06 become 3.12 fits, so
 #    QLIKE figures can shift in the third decimal. Every milestone, table and
 #    quoted number in ROADMAP.md needs re-checking afterwards.
@@ -25,9 +33,11 @@
 #
 #  USAGE (from the Code\ directory, in PowerShell)
 #  ----------------------------------------------
-#      .\rerun_all.ps1                 # full run, with the Phase-3 sweep
-#      .\rerun_all.ps1 -NoSweep        # skip the sweep
-#      .\rerun_all.ps1 -SkipTests      # skip the pytest step at the end
+#      .\rerun_all.ps1                    # everything: Phases 2-8 + both gates
+#      .\rerun_all.ps1 -NoSweep           # skip the Phase-3 hyperparameter sweep
+#      .\rerun_all.ps1 -NoPhase8          # primary asset only, no RQ4 chain
+#      .\rerun_all.ps1 -NoSensitivities   # skip log-HAR and the refit run
+#      .\rerun_all.ps1 -SkipTests         # skip the pytest step
 #
 #  Per-step logs land in results\logs\rerun-<timestamp>\.
 # =============================================================================
@@ -36,7 +46,9 @@
 param(
     [switch]$NoSweep,
     [switch]$SkipTests,
-    [switch]$KeepPycache
+    [switch]$KeepPycache,
+    [switch]$NoPhase8,          # skip the RQ4 cross-asset chain
+    [switch]$NoSensitivities    # skip log-HAR and the refit run (the latter is the longest step)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -128,9 +140,28 @@ Invoke-Step '10-phase6-uq-hmm' @('-m','src.experiments.run_uq','--config','uq_hm
 Invoke-Step '11-phase7-combined'     @('-m','src.experiments.run_combined')
 Invoke-Step '12-phase7-combined-hmm' @('-m','src.experiments.run_combined','--config','combined_hmm')
 
+# ---- Phase 8: RQ4 cross-asset transfer (.RUT and .FTSE) ---------------------
+# Regimes before the deep run: Phase 5 consumes Phase 4's parquet. run_rq4 only
+# reads, so it goes last. Skip the whole block with -NoPhase8 when re-running
+# only the primary asset.
+if (-not $NoPhase8) {
+    Invoke-Step '13-phase8-econometric-rq4' @('-m','src.experiments.run_econometric','--config','econometric_rq4')
+    Invoke-Step '14-phase8-regimes-rq4'     @('-m','src.experiments.run_regimes','--config','hmm_rq4')
+    Invoke-Step '15-phase8-regime-lstm-rq4' @('-m','src.experiments.run_regime_lstm','--config','regime_lstm_rq4')
+    Invoke-Step '16-phase8-rq4'             @('-m','src.experiments.run_rq4')
+}
+
+# ---- Phase 8 sensitivities: independent of RQ4 and of each other ------------
+# The refit run retrains at EVERY fold rather than once, so it costs roughly
+# (n test folds) x the Phase-3 training time -- the longest single step here.
+if (-not $NoSensitivities) {
+    Invoke-Step '17-sensitivity-loghar' @('-m','src.experiments.run_econometric','--config','econometric_loghar')
+    Invoke-Step '18-sensitivity-refit'  @('-m','src.experiments.run_lstm','--config','lstm_baseline_refit')
+}
+
 # ---- Test suite -------------------------------------------------------------
 if (-not $SkipTests) {
-    Invoke-Step '13-pytest' @('-m','pytest','-q')
+    Invoke-Step '19-pytest' @('-m','pytest','-q')
 }
 
 # ---- Verification -----------------------------------------------------------
@@ -223,12 +254,21 @@ Write-Host ("Logs: {0}" -f $LogDir)
 
 if ($verifyCode -ne 0) {
     Write-Host ''
-    Write-Host 'VERIFICATION DID NOT PASS -- read section 1 and 2 above before committing.' -ForegroundColor Red
+    Write-Host 'PROVENANCE VERIFICATION DID NOT PASS -- read sections 1 and 2 above before committing.' -ForegroundColor Red
     exit 1
 }
+
+# ---- The reproducibility gate ----------------------------------------------
+# The checks above verify PROVENANCE -- that one environment produced everything
+# and that Phase 7 inherited Phase 5's model. This one verifies VALUES: every
+# published metric recomputed from the prediction parquets by code that imports
+# nothing from src.evaluation. It is the check the (vi)/(vii)/(ix) audits did by
+# hand, and its exit code is the submission gate.
+Invoke-Step '20-verify-claims' @('-m','src.experiments.verify_claims')
 
 Write-Host ''
 Write-Host 'All phases regenerated in one environment and verified.' -ForegroundColor Green
 Write-Host 'Next, by hand (git is yours -- this script never touches it):' -ForegroundColor Yellow
-Write-Host '  1. Diff results\ and re-check every number quoted in ROADMAP.md and the milestones.'
-Write-Host '  2. Commit, then re-tag m01..m07 onto the commits that actually contain each phase.'
+Write-Host '  1. Read results\milestones\m09_verification.md -- it lists every value re-derived.'
+Write-Host '  2. Diff results\ and re-check every number quoted in ROADMAP.md and the milestones.'
+Write-Host '  3. Commit, then re-tag m01..m08 onto the commits that actually contain each phase.'

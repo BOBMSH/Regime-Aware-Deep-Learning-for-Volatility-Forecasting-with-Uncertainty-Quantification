@@ -638,6 +638,60 @@ would look like an oversight if a reader met it undeclared.
 
 ## Changelog
 
+### 2026-09-02 (xi) — Phase 9 code: the reproducibility gate, and 943 values that re-derive
+
+**Phase 9 splits.** Two of its four items are code and are now built; the other
+two — Conclusion, Abstract, and the pruning decisions — are writing tasks gated
+on Chapters 4-6 and cannot start before those exist.
+
+**`src/experiments/verify_claims.py` — the value gate.** Audits (vi), (vii) and
+(ix) each re-derived the headline statistics with throwaway code and threw the
+code away. This is that discipline made permanent: one command that reads every
+published table and recomputes its contents **from the prediction parquets**,
+exiting non-zero on any disagreement.
+
+*It imports nothing from `src.evaluation`, and that is the point.* Calling the
+project's own `qlike` would check that a CSV matches what that function returns
+today — catching a stale artefact, the common failure, while agreeing
+enthusiastically with a regression in the function itself. The formulas are
+reimplemented inline and unit-tested against hand-computed closed forms, so the
+gate checks the artefact against the data *and* the project's formula against a
+second reading of the definition. **Do not "DRY this up".**
+
+**Run against the committed artefacts: 943 values across 45 tables, 941 OK, 2
+skips, zero mismatches.** Point metrics in every `*_metrics.csv` and both master
+tables; PICP, MPIW, Winkler and coverage error in every calibration table; every
+per-regime loss in all three shapes it is written in, on the `t-1` label taken
+from the full-history Phase-4 series; every `n`; and cross-table agreement for
+any model published more than once — the check that would have caught the
+2026-09-01 CRPS defect. The two skips are `Quantile-LSTM-mean`, a derived row
+with no persisted series. Test statistics are deliberately out of scope, for the
+reason the module states.
+
+Building it found **no artefact defects** — the fourteen initial mismatches were
+all bugs in the verifier, and fixing them raised coverage from 727 values to 943.
+
+**`rerun_all.ps1` now regenerates Phases 2 → 8** (the RQ4 chain and both
+sensitivities, behind `-NoPhase8` / `-NoSensitivities`) and ends with **two**
+gates: the existing provenance checks, then the value gate.
+
+**Publication-grade figures.** `save_fig` writes a PDF vector companion beside
+every PNG. The PNG stays what the .docx embeds — Word handles raster reliably and
+vector unevenly — and the PDF is the archival copy.
+
+**The README is now the reproduction guide.** It stopped at Phase 1 and still
+named AAPL and TSLA as the study's assets. It now covers the data *interface*
+(not just the dataset), setup, the one-command reproduction, both gates, what
+gets written where, every config and what it runs, and the reproducibility
+contract — which is what the supervisor's §10 actually asks a repository for.
+This displaced the checksum manifest originally planned for this phase: a marker
+needs instructions that work, not hashes.
+
+Suite **424** on the bridge (excluding the four torch modules).
+
+**Phase 9 remaining, and it is all writing:** Conclusion, Abstract, the pruning
+pass, and the `v1.0-submitted` tag.
+
 ### 2026-09-02 (x.3) — Phase 8 complete; the last two defects were in the fixes
 
 Everything re-ran clean. **The headline Phase-2 note is restored and every

@@ -45,10 +45,38 @@ def shade_crises(ax: plt.Axes, *, alpha: float = 0.12, color: str = "tab:red") -
         ax.text(start, ax.get_ylim()[1], label, fontsize=7, va="top", alpha=0.6, rotation=90)
 
 
-def save_fig(fig: plt.Figure, path: Path | str) -> Path:
+#: Vector companion format written beside every raster figure. Phase 9 asks for
+#: publication-grade figures; the dissertation is a .docx, which embeds PNG
+#: reliably and vector formats unevenly, so the PNG stays the file the document
+#: uses and the PDF is the archival copy -- lossless at any zoom, and what a
+#: reader gets if a figure is ever lifted into a paper. Set to None to disable.
+VECTOR_FORMAT: str | None = "pdf"
+
+
+def save_fig(fig: plt.Figure, path: Path | str, *, vector: bool | None = None) -> Path:
+    """Write a figure, plus a vector companion beside it.
+
+    Returns the raster path, which is what every caller embeds and what the
+    milestone notes link to. The companion is written to the same stem with
+    :data:`VECTOR_FORMAT`'s extension, so ``m04/x.png`` gains ``m04/x.pdf``.
+
+    ``vector=False`` suppresses the companion for a figure that does not warrant
+    one; ``None`` follows :data:`VECTOR_FORMAT`.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
+
+    want_vector = VECTOR_FORMAT if vector is None else (VECTOR_FORMAT if vector else None)
+    if want_vector and path.suffix.lower() != f".{want_vector}":
+        try:
+            fig.savefig(path.with_suffix(f".{want_vector}"))
+        except Exception as exc:                      # noqa: BLE001
+            # A missing vector backend must not lose the figure that was already
+            # written -- the raster copy is the one the dissertation needs.
+            import logging
+            logging.getLogger("plotting").warning(
+                "vector companion for %s not written: %s", path.name, exc)
     return path
 
 
