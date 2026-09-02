@@ -12,9 +12,9 @@ The dissertation's primary target is the Oxford-Man intraday RV (roadmap §1.1; 
 
 A **target-validity diagnostic** below shows *why* a Yang-Zhang OHLC RV cannot simply be substituted to extend coverage: its 21-day rolling smoothing makes the target near-perfectly autocorrelated, trivialising persistence models and inflating GARCH error — an artefact, not a result.
 
-## Profile: `intraday_2019_2022` (headline)
+## Profile: `intraday_2019_2022_loghar` (diagnostic — not a result)
 
-Oxford-Man intraday rv5 (canonical ABDL target); anchored walk-forward; test 2019-01 -> 2022-02-25 with the COVID-19 crash as the headline out-of-sample stressor.
+LOG-HAR SENSITIVITY (not the headline). HAR-RV estimated on log realized variance and retransformed, on the identical target, window and folds as the Phase-2 headline. Answers the 'the LSTM only wins because it models logs' objection with a harness number rather than a one-off check. RW-RV is carried unchanged as an anchor: its QLIKE must reproduce the headline's exactly.
 
 - **Target:** `oxfordman_rv5` (realized variance), lag-1 autocorrelation **0.693**
 - **Split:** train ≤ 2015-12-31, val 2016-01-01–2018-12-31, test 2019-01-01–2022-02-25
@@ -23,55 +23,21 @@ Oxford-Man intraday rv5 (canonical ABDL target); anchored walk-forward; test 201
 
 | model | n | QLIKE | MSE | RMSE | MAE |
 |---|---|---|---|---|---|
-| HAR-RV | 784 | 0.2745 | 4.176e-08 | 2.044e-04 | 6.046e-05 |
-| GARCH | 784 | 0.3302 | 5.625e-08 | 2.372e-04 | 7.172e-05 |
-| EGARCH | 784 | 0.3328 | 5.666e-08 | 2.380e-04 | 6.902e-05 |
 | RW-RV | 784 | 0.3584 | 5.284e-08 | 2.299e-04 | 6.579e-05 |
+| HAR-RV | 784 | 0.4886 | 3.826e-05 | 6.185e-03 | 6.761e-04 |
 
 
 **Model diagnostics.**
 
-- GARCH: persistence_mean=0.9895, converged_frac=1, n_fits=38
-
-- EGARCH: persistence_mean=0.9752, converged_frac=1, n_fits=38
-
-- HAR-RV: beta_d_mean=0.2739, beta_w_mean=0.4798, beta_m_mean=0.1452, r2_mean=0.5532, n_floored=0
+- HAR-RV: beta_d_mean=777, beta_w_mean=890.4, beta_m_mean=1903, r2_mean=0.3682, n_floored=0
 
 
-![forecast vs actual](../figures/m02/intraday_2019_2022_forecast_vs_actual.png)
-
-## Profile: `yang_zhang_diagnostic` (diagnostic — not a result)
-
-TARGET-VALIDITY DIAGNOSTIC (not a result). Yang-Zhang OHLC RV over the same window. Its 21-day rolling smoothing pushes the target's lag-1 autocorrelation to ~0.996, which trivialises persistence models (random walk, HAR) and inflates GARCH error by ~20x. Included to justify why a genuine daily intraday RV target is required.
-
-- **Target:** `yang_zhang` (realized variance), lag-1 autocorrelation **0.996**
-- **Split:** train ≤ 2015-12-31, val 2016-01-01–2018-12-31, test 2019-01-01–2022-02-25
-- **Walk-forward:** anchored, refit every 21 trading days, 38 folds, 795 OOS days (2019-01-02 → 2022-02-25)
-
-
-| model | n | QLIKE | MSE | RMSE | MAE |
-|---|---|---|---|---|---|
-| HAR-RV | 795 | 0.0038 | 4.084e-10 | 2.021e-05 | 6.765e-06 |
-| RW-RV | 795 | 0.0047 | 7.786e-10 | 2.790e-05 | 8.661e-06 |
-| GARCH | 795 | 0.0942 | 2.362e-08 | 1.537e-04 | 5.045e-05 |
-| EGARCH | 795 | 0.1308 | 3.902e-08 | 1.975e-04 | 6.009e-05 |
-
-
-**Model diagnostics.**
-
-- GARCH: persistence_mean=0.9891, converged_frac=1, n_fits=38
-
-- EGARCH: persistence_mean=0.9747, converged_frac=1, n_fits=38
-
-- HAR-RV: beta_d_mean=1.305, beta_w_mean=-0.3035, beta_m_mean=-0.01139, r2_mean=0.9944, n_floored=0
-
-
-![forecast vs actual](../figures/m02/yang_zhang_diagnostic_forecast_vs_actual.png)
+![forecast vs actual](../figures/m02/intraday_2019_2022_loghar_forecast_vs_actual.png)
 
 ## Findings
 
-On the headline intraday target, **HAR-RV** attains the lowest QLIKE (0.2745). 
-Full QLIKE ranking (lower is better): HAR-RV (0.274) < GARCH (0.330) < EGARCH (0.333) < RW-RV (0.358).
+On the headline intraday target, **RW-RV** attains the lowest QLIKE (0.3584). 
+Full QLIKE ranking (lower is better): RW-RV (0.358) < HAR-RV (0.489).
 
 
 The ordering is consistent with the realized-volatility literature: HAR-RV is hard to beat on its native target (Corsi 2009; Bucci 2020; Christensen, Siggaard & Veliyev 2023), and among the GARCH family the asymmetric EGARCH is competitive with or better than symmetric GARCH(1,1) on equity data (Hansen & Lunde 2005). This establishes the bar the Phase 3 LSTM and the later regime-aware / UQ models must clear (RQ1).

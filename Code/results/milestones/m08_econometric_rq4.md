@@ -12,66 +12,66 @@ The dissertation's primary target is the Oxford-Man intraday RV (roadmap §1.1; 
 
 A **target-validity diagnostic** below shows *why* a Yang-Zhang OHLC RV cannot simply be substituted to extend coverage: its 21-day rolling smoothing makes the target near-perfectly autocorrelated, trivialising persistence models and inflating GARCH error — an artefact, not a result.
 
-## Profile: `intraday_2019_2022` (headline)
+## Profile: `rq4_rut` (diagnostic — not a result)
 
-Oxford-Man intraday rv5 (canonical ABDL target); anchored walk-forward; test 2019-01 -> 2022-02-25 with the COVID-19 crash as the headline out-of-sample stressor.
+RQ4 robustness asset: Russell 2000 (.RUT), US small-cap on the same session as the S&P 500. Same protocol, same window, same target construction; test 2019-01 -> 2022-02-25 with the COVID-19 crash out-of-sample. A US small-cap index shares the S&P's calendar and macro shocks but has materially different microstructure, so a conclusion that survives here is not an artefact of large-cap dynamics.
 
-- **Target:** `oxfordman_rv5` (realized variance), lag-1 autocorrelation **0.693**
+- **Target:** `oxfordman_rv5` (realized variance), lag-1 autocorrelation **0.719**
 - **Split:** train ≤ 2015-12-31, val 2016-01-01–2018-12-31, test 2019-01-01–2022-02-25
-- **Walk-forward:** anchored, refit every 21 trading days, 38 folds, 784 OOS days (2019-01-02 → 2022-02-25)
+- **Walk-forward:** anchored, refit every 21 trading days, 38 folds, 788 OOS days (2019-01-02 → 2022-02-25)
 
 
 | model | n | QLIKE | MSE | RMSE | MAE |
 |---|---|---|---|---|---|
-| HAR-RV | 784 | 0.2745 | 4.176e-08 | 2.044e-04 | 6.046e-05 |
-| GARCH | 784 | 0.3302 | 5.625e-08 | 2.372e-04 | 7.172e-05 |
-| EGARCH | 784 | 0.3328 | 5.666e-08 | 2.380e-04 | 6.902e-05 |
-| RW-RV | 784 | 0.3584 | 5.284e-08 | 2.299e-04 | 6.579e-05 |
+| HAR-RV | 788 | 0.2260 | 2.803e-08 | 1.674e-04 | 6.716e-05 |
+| RW-RV | 788 | 0.2860 | 2.875e-08 | 1.696e-04 | 6.964e-05 |
+| EGARCH | 788 | 0.4437 | 4.091e-08 | 2.023e-04 | 1.263e-04 |
+| GARCH | 788 | 0.4810 | 7.106e-08 | 2.666e-04 | 1.470e-04 |
 
 
 **Model diagnostics.**
 
-- GARCH: persistence_mean=0.9895, converged_frac=1, n_fits=38
+- GARCH: persistence_mean=0.9813, converged_frac=1, n_fits=38
 
-- EGARCH: persistence_mean=0.9752, converged_frac=1, n_fits=38
+- EGARCH: persistence_mean=0.9784, converged_frac=1, n_fits=38
 
-- HAR-RV: beta_d_mean=0.2739, beta_w_mean=0.4798, beta_m_mean=0.1452, r2_mean=0.5532, n_floored=0
+- HAR-RV: beta_d_mean=0.3073, beta_w_mean=0.4811, beta_m_mean=0.1065, r2_mean=0.5656, n_floored=0
 
 
-![forecast vs actual](../figures/m02/intraday_2019_2022_forecast_vs_actual.png)
+![forecast vs actual](../figures/m02/rq4_rut_forecast_vs_actual.png)
 
-## Profile: `yang_zhang_diagnostic` (diagnostic — not a result)
+## Profile: `rq4_ftse` (diagnostic — not a result)
 
-TARGET-VALIDITY DIAGNOSTIC (not a result). Yang-Zhang OHLC RV over the same window. Its 21-day rolling smoothing pushes the target's lag-1 autocorrelation to ~0.996, which trivialises persistence models (random walk, HAR) and inflates GARCH error by ~20x. Included to justify why a genuine daily intraday RV target is required.
+RQ4 robustness asset: FTSE 100 (.FTSE), a different market and a different trading session. The harder of the two transfers: the session does not overlap the S&P's for most of the day, the holiday calendar differs, and the VIX is not a valid auxiliary input (assets.registry.FTSE.vix_feature: false). Same protocol, same window, same target construction.
 
-- **Target:** `yang_zhang` (realized variance), lag-1 autocorrelation **0.996**
+- **Target:** `oxfordman_rv5` (realized variance), lag-1 autocorrelation **0.491**
 - **Split:** train ≤ 2015-12-31, val 2016-01-01–2018-12-31, test 2019-01-01–2022-02-25
 - **Walk-forward:** anchored, refit every 21 trading days, 38 folds, 795 OOS days (2019-01-02 → 2022-02-25)
 
 
 | model | n | QLIKE | MSE | RMSE | MAE |
 |---|---|---|---|---|---|
-| HAR-RV | 795 | 0.0038 | 4.084e-10 | 2.021e-05 | 6.765e-06 |
-| RW-RV | 795 | 0.0047 | 7.786e-10 | 2.790e-05 | 8.661e-06 |
-| GARCH | 795 | 0.0942 | 2.362e-08 | 1.537e-04 | 5.045e-05 |
-| EGARCH | 795 | 0.1308 | 3.902e-08 | 1.975e-04 | 6.009e-05 |
+| EGARCH | 795 | 0.2960 | 7.112e-08 | 2.667e-04 | 7.719e-05 |
+| HAR-RV | 795 | 0.2997 | 7.466e-08 | 2.732e-04 | 7.832e-05 |
+| GARCH | 795 | 0.3344 | 8.159e-08 | 2.856e-04 | 9.083e-05 |
+| RW-RV | 795 | 0.5562 | 1.166e-07 | 3.415e-04 | 8.891e-05 |
 
 
 **Model diagnostics.**
 
-- GARCH: persistence_mean=0.9891, converged_frac=1, n_fits=38
+- GARCH: persistence_mean=0.9857, converged_frac=1, n_fits=38
 
-- EGARCH: persistence_mean=0.9747, converged_frac=1, n_fits=38
+- EGARCH: persistence_mean=0.9807, converged_frac=1, n_fits=38
 
-- HAR-RV: beta_d_mean=1.305, beta_w_mean=-0.3035, beta_m_mean=-0.01139, r2_mean=0.9944, n_floored=0
+- HAR-RV: beta_d_mean=0.1201, beta_w_mean=0.5327, beta_m_mean=0.185, r2_mean=0.3492, n_floored=0
 
 
-![forecast vs actual](../figures/m02/yang_zhang_diagnostic_forecast_vs_actual.png)
+![forecast vs actual](../figures/m02/rq4_ftse_forecast_vs_actual.png)
 
 ## Findings
 
-On the headline intraday target, **HAR-RV** attains the lowest QLIKE (0.2745). 
-Full QLIKE ranking (lower is better): HAR-RV (0.274) < GARCH (0.330) < EGARCH (0.333) < RW-RV (0.358).
+On the headline intraday target, **HAR-RV** attains the lowest QLIKE (0.2260). 
+Full QLIKE ranking (lower is better): HAR-RV (0.226) < RW-RV (0.286) < EGARCH (0.444) < GARCH (0.481).
 
 
 The ordering is consistent with the realized-volatility literature: HAR-RV is hard to beat on its native target (Corsi 2009; Bucci 2020; Christensen, Siggaard & Veliyev 2023), and among the GARCH family the asymmetric EGARCH is competitive with or better than symmetric GARCH(1,1) on equity data (Hansen & Lunde 2005). This establishes the bar the Phase 3 LSTM and the later regime-aware / UQ models must clear (RQ1).

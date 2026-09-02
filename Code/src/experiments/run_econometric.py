@@ -39,7 +39,8 @@ from src.models.econometric import (
     HARForecaster,
     RandomWalkRVForecaster,
 )
-from src.utils.config import load_config, repo_path, snapshot_config
+from src.utils.config import (load_config, milestone_path, repo_path,
+                              snapshot_config)
 from src.utils.io import ensure_dir, to_parquet
 from src.utils.logging import get_logger
 from src.utils.seeding import set_seed
@@ -377,8 +378,15 @@ def main(argv: list[str] | None = None) -> int:
 
     results = [run_profile(data_cfg, econ_cfg, p) for p in econ_cfg.profiles]
 
+    # One note per config, never per profile: unlike every other runner this one
+    # writes a single milestone covering all of its profiles, so the {profile}
+    # placeholder is not wanted here -- what is wanted is that a NON-headline
+    # config (econometric_rq4, econometric_loghar) cannot land on the headline's
+    # filename. It did, on 2026-09-02, and overwrote m02_econometric.md twice.
     milestone = write_milestone(
-        results, repo_path(econ_cfg.paths.milestones, "m02_econometric.md"), econ_cfg=econ_cfg
+        results,
+        milestone_path(econ_cfg, "m02_econometric.md", results[0]["name"]),
+        econ_cfg=econ_cfg,
     )
     log.info("wrote milestone -> %s", milestone)
     log.info("Phase 2 complete: %d profile(s) run.", len(results))

@@ -87,13 +87,16 @@ profiles:
       test_end: "2022-02-25"
 
 # --- Output paths ------------------------------------------------------------
-# milestone_file carries a {profile} placeholder because this config has more
-# than one profile: without it every profile would write the same note and only
-# the last would survive. src.utils.config.milestone_path rejects the omission.
+# NOTE the asymmetry with the other Phase-8 configs. `run_econometric` writes ONE
+# milestone covering all of its profiles (it is handed the whole results list),
+# whereas every other runner writes one per profile inside a loop. So this file
+# needs a plain name and NOT a {profile} placeholder -- what it must not do is
+# land on the headline's `m02_econometric.md`, which is exactly what happened on
+# 2026-09-02 before `run_econometric` was routed through `milestone_path`.
 paths:
   tables: "results/tables"
   figures: "results/figures"
   predictions: "results/predictions"
   milestones: "results/milestones"
-  milestone_file: "m08_econometric_{profile}.md"
+  milestone_file: "m08_econometric_rq4.md"
   experiments: "experiments"

@@ -63,7 +63,8 @@ from src.evaluation.regime_timing import (
 )
 from src.evaluation.rolling import ACTUAL_COL, evaluate_predictions
 from src.experiments.report_gw import joint_table, per_regime_table
-from src.utils.config import load_config, repo_path, snapshot_config
+from src.utils.config import (load_config, milestone_path, repo_path,
+                              snapshot_config)
 from src.utils.io import ensure_dir, from_parquet
 from src.utils.logging import get_logger
 from src.utils.seeding import set_seed
@@ -281,20 +282,38 @@ def _regime_summary(profile_name: str, tables: Path, state: pd.Series,
     if lam_path.exists():
         lam = pd.read_csv(lam_path)
         row["lambda_table"] = lam_path.name
-        lam_col = next((c for c in ("lambda", "jump_penalty", "penalty")
+        lam_col = next((c for c in ("jump_penalty", "lambda", "penalty")
                         if c in lam.columns), None)
-        dur_col = next((c for c in ("mean_duration_days", "mean_duration",
+        dur_col = next((c for c in ("mean_duration", "mean_duration_days",
                                     "mean_regime_duration") if c in lam.columns), None)
         if lam_col:
             row["lambda_grid"] = ", ".join(f"{v:g}" for v in lam[lam_col])
         if dur_col:
             row["mean_duration_by_lambda"] = ", ".join(f"{v:.1f}" for v in lam[dur_col])
-        if "selected" in lam.columns and lam["selected"].astype(bool).any():
-            sel = lam.loc[lam["selected"].astype(bool)].iloc[0]
-            if lam_col:
-                row["selected_lambda"] = float(sel[lam_col])
-            if dur_col:
-                row["selected_mean_duration_days"] = float(sel[dur_col])
+
+    # The SELECTED penalty comes from the causal-signals table, which records the
+    # lambda the run actually used for the signal Phase 5 consumed -- not from
+    # re-applying the selection rule here, which would be a second implementation
+    # of it that could drift from the first. The sweep table carries no
+    # `selected` flag, so reading it for one was silently yielding nothing: this
+    # column was blank in the first RQ4 run, and it is the single most important
+    # portability number in the phase (did each market need the same penalty?).
+    sig_path = tables / f"m04_regimes_{profile_name}_causal_signals.csv"
+    if sig_path.exists():
+        sig = pd.read_csv(sig_path)
+        jp = sig[sig["signal"] == "jump_penalised_hmm"] if "signal" in sig.columns else sig
+        if len(jp) and "lambda" in jp.columns and pd.notna(jp["lambda"].iloc[0]):
+            row["selected_lambda"] = float(jp["lambda"].iloc[0])
+            for src, dst in (("test_mean_duration_days", "test_mean_duration_days"),
+                             ("test_switches", "test_switches"),
+                             ("mean_max_posterior_test", "mean_max_posterior_test")):
+                if src in jp.columns:
+                    row[dst] = float(jp[src].iloc[0])
+    if "selected_lambda" not in row:
+        log.warning(
+            "no selected lambda found for %s (looked in %s). The RQ4 note's "
+            "portability table needs it; check that Phase 4 wrote its "
+            "causal-signals table for this profile.", profile_name, sig_path.name)
 
     bic_path = tables / f"m04_regimes_{profile_name}_bic.csv"
     if bic_path.exists():
@@ -666,7 +685,8 @@ def main(argv: list[str] | None = None) -> int:
         written.append("m08_rq4_rank_matrix.csv")
     log.info("tables written: %s", ", ".join(written))
 
-    write_milestone(ctx, verdict_tbl, repo_path(cfg.paths.milestones, "m08_rq4.md"),
+    write_milestone(ctx, verdict_tbl,
+                    milestone_path(cfg, "m08_rq4.md", "rq4"),
                     alpha=args.alpha)
 
     for r in verdict_tbl.to_dict("records"):

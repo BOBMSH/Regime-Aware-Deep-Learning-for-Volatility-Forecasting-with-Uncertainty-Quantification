@@ -259,13 +259,70 @@ def test_rq4_profiles_are_wired_to_their_own_artefacts_not_the_sp_s():
         assert str(profile.baseline_predictions).endswith(f"m02_{name}.parquet")
 
 
-@pytest.mark.parametrize("config", ["econometric_rq4", "hmm_rq4", "regime_lstm_rq4"])
-def test_multi_profile_configs_cannot_overwrite_their_own_milestones(config):
+@pytest.mark.parametrize("config", ["hmm_rq4", "regime_lstm_rq4"])
+def test_per_profile_runners_cannot_overwrite_their_own_milestones(config):
+    """These runners write one note per profile inside the loop, so a
+    two-profile config must resolve to two distinct filenames."""
     cfg = load_config(config)
     assert len(cfg.profiles) > 1
     names = {milestone_path(cfg, "unused.md", str(p.name),
                             n_profiles=len(cfg.profiles)) for p in cfg.profiles}
     assert len(names) == len(cfg.profiles)
+
+
+@pytest.mark.parametrize("config,expected", [
+    ("econometric_rq4", "m08_econometric_rq4.md"),
+    ("econometric_loghar", "m08_loghar_sensitivity.md"),
+])
+def test_econometric_variants_never_land_on_the_headline_note(config, expected):
+    """`run_econometric` writes ONE note for all its profiles, so it needs a plain
+    name rather than a placeholder — but it must not be the headline's.
+
+    On 2026-09-02 it was: `run_econometric` was the one runner not routed through
+    `milestone_path`, so both Phase-8 econometric configs wrote to
+    `m02_econometric.md` and the headline Phase-2 note was overwritten twice.
+    """
+    cfg = load_config(config)
+    got = milestone_path(cfg, "m02_econometric.md", str(cfg.profiles[0].name),
+                         n_profiles=1)
+    assert got.name == expected
+    assert got.name != "m02_econometric.md"
+
+
+def test_every_runner_routes_its_milestone_through_milestone_path():
+    """A source-level guard, because the unit test above did not catch the bug.
+
+    `milestone_path` was written, tested directly, and then *not called* by
+    `run_econometric` — the exact failure the project's own rule warns about: a
+    test that exercises a function in isolation does not certify that anything
+    calls it. This walks each runner's AST and asserts that every
+    ``write_milestone(...)`` call takes its destination from ``milestone_path``,
+    never from a ``repo_path(..., "literal.md")``.
+    """
+    import ast
+    import pathlib
+
+    runners = sorted(pathlib.Path("src/experiments").glob("run_*.py"))
+    assert len(runners) >= 6, runners
+    checked = 0
+    for path in runners:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "write_milestone"):
+                continue
+            # The destination is not always the same positional slot
+            # (`run_rq4` passes a verdict table first), so look for a
+            # milestone_path(...) call anywhere in the arguments.
+            calls = [a.func.id for a in node.args
+                     if isinstance(a, ast.Call) and isinstance(a.func, ast.Name)]
+            assert "milestone_path" in calls, (
+                f"{path.name}:{node.lineno} writes its milestone via "
+                f"{calls or 'a non-call argument'}, bypassing milestone_path — "
+                "a non-headline config can then overwrite the headline note")
+            checked += 1
+    assert checked >= 6, f"expected a write_milestone call per runner, found {checked}"
 
 
 def test_sensitivity_configs_change_exactly_one_thing():
@@ -454,11 +511,21 @@ def _write_phase8_tree(root, rng, *, edges):
             "hmm_bic": [100.0, 90.0, 95.0],
             "jump_bic": [110.0, 99.0, 94.0],       # the jump model prefers K=4
         }).to_csv(tables / f"m04_regimes_{profile}_bic.csv", index=False)
+        # Column names match what Phase 4 actually writes -- `jump_penalty` /
+        # `mean_duration`, and NO `selected` flag. The first RQ4 run came back
+        # with a blank selected-lambda column because the fixture had invented
+        # one; the selection now comes off the causal-signals table below.
         pd.DataFrame({
-            "lambda": [1.0, 3.0, 10.0, 30.0, 100.0, 300.0],
-            "mean_duration_days": [3.3, 18.2, 40.0, 90.0, 150.0, 400.0],
-            "selected": [False, True, False, False, False, False],
+            "jump_penalty": [1.0, 3.0, 10.0, 30.0, 100.0, 300.0],
+            "n_jumps": [1301, 51, 7, 6, 2, 0],
+            "mean_duration": [3.3, 76.7, 498.6, 569.9, 1329.7, 3989.0],
         }).to_csv(tables / f"m04_regimes_{profile}_jump_lambda_train.csv", index=False)
+        pd.DataFrame({
+            "signal": ["jump_penalised_hmm", "baum_welch_hmm"],
+            "lambda": [3.0, np.nan],
+            "test_mean_duration_days": [19.6, 4.1],
+            "test_switches": [40.0, 190.0],
+        }).to_csv(tables / f"m04_regimes_{profile}_causal_signals.csv", index=False)
         pd.DataFrame([{
             "profile": profile, "asset": profile, "oxfordman_symbol": ".X",
             "session": "US", "vix_joined": True, "n_target_rows": 300,
@@ -675,3 +742,45 @@ def test_a_state_with_no_days_yields_nan_rather_than_a_crash():
     series = pd.Series(np.linspace(1.0, 5.0, 100))
     _, extra = state_concordance(state, series, 3, key="rv")
     assert np.isnan(extra["mean_rv_by_state"]["state1"])
+
+
+def test_the_selected_lambda_is_read_from_the_signal_the_run_actually_used(tmp_path):
+    """The portability number the whole phase turns on must not come back blank.
+
+    In the first real RQ4 run it did: `_regime_summary` looked for a `selected`
+    flag on the lambda sweep table, which Phase 4 does not write, so
+    `selected_lambda` was silently absent from `m08_rq4_regimes.csv`. It now
+    comes off the causal-signals table -- the lambda the run actually used for
+    the signal Phase 5 consumed -- rather than from a second implementation of
+    the selection rule that could drift from the first.
+    """
+    tables = tmp_path
+    pd.DataFrame({"jump_penalty": [1.0, 3.0, 10.0],
+                  "n_jumps": [1301, 51, 7],
+                  "mean_duration": [3.1, 76.7, 498.6]}).to_csv(
+        tables / "m04_regimes_p_jump_lambda_train.csv", index=False)
+    pd.DataFrame({"signal": ["jump_penalised_hmm", "baum_welch_hmm"],
+                  "lambda": [3.0, np.nan],
+                  "test_mean_duration_days": [12.6, 4.1],
+                  "test_switches": [62.0, 190.0]}).to_csv(
+        tables / "m04_regimes_p_causal_signals.csv", index=False)
+
+    idx = pd.bdate_range("2019-01-01", periods=60)
+    state = pd.Series(np.repeat([0, 1, 2], 30).astype(float),
+                      index=pd.bdate_range("2018-11-01", periods=90))
+    row = R._regime_summary("p", tables, state, idx,
+                            ["calm", "transitional", "crisis"])
+    assert row["selected_lambda"] == 3.0
+    assert row["test_mean_duration_days"] == pytest.approx(12.6)
+    # the sweep is still reported alongside it
+    assert row["lambda_grid"] == "1, 3, 10"
+    assert row["mean_duration_by_lambda"] == "3.1, 76.7, 498.6"
+
+
+def test_a_missing_selected_lambda_is_warned_about_not_silently_dropped(tmp_path, project_logs):
+    records = project_logs("rq4")
+    idx = pd.bdate_range("2019-01-01", periods=30)
+    state = pd.Series(np.zeros(60), index=pd.bdate_range("2018-11-01", periods=60))
+    row = R._regime_summary("missing", tmp_path, state, idx, ["calm", "transitional", "crisis"])
+    assert "selected_lambda" not in row
+    assert any("no selected lambda" in r.getMessage() for r in records)

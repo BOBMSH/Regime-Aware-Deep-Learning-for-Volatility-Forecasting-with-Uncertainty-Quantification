@@ -1,0 +1,77 @@
+seed: 17
+models:
+  garch:
+    enabled: true
+    dist: normal
+    p: 1
+    q: 1
+  egarch:
+    enabled: true
+    dist: normal
+    p: 1
+    o: 1
+    q: 1
+  har:
+    enabled: true
+    transform: level
+  naive_rw:
+    enabled: true
+harness:
+  return_col: oc_log_return
+  scale: 100.0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+profiles:
+- name: rq4_rut
+  headline: false
+  asset: RUT
+  target: oxfordman_rv5
+  description: 'RQ4 robustness asset: Russell 2000 (.RUT), US small-cap on the same
+    session as the S&P 500. Same protocol, same window, same target construction;
+    test 2019-01 -> 2022-02-25 with the COVID-19 crash out-of-sample. A US small-cap
+    index shares the S&P''s calendar and macro shocks but has materially different
+    microstructure, so a conclusion that survives here is not an artefact of large-cap
+    dynamics.'
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+- name: rq4_ftse
+  headline: false
+  asset: FTSE
+  target: oxfordman_rv5
+  description: 'RQ4 robustness asset: FTSE 100 (.FTSE), a different market and a different
+    trading session. The harder of the two transfers: the session does not overlap
+    the S&P''s for most of the day, the holiday calendar differs, and the VIX is not
+    a valid auxiliary input (assets.registry.FTSE.vix_feature: false). Same protocol,
+    same window, same target construction.'
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+paths:
+  tables: results/tables
+  figures: results/figures
+  predictions: results/predictions
+  milestones: results/milestones
+  milestone_file: m08_econometric_rq4.md
+  experiments: experiments
+_snapshot_utc: '2026-09-02T02:51:40+00:00'
+_environment:
+  python: 3.12.1
+  python_build: CPython
+  platform: Windows-11-10.0.26200-SP0
+  machine: AMD64
+  torch: 2.13.0+cpu
+  numpy: 2.4.4
+  pandas: 2.3.3
+  scipy: 1.17.1
+  sklearn: 1.8.0
+  arch: 8.0.0
+  hmmlearn: 0.3.3
+  statsmodels: 0.14.6

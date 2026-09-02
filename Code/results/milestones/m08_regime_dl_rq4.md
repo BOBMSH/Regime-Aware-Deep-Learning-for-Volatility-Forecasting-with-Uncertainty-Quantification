@@ -1,0 +1,109 @@
+# m08 - RQ4: does the S&P 500 result transfer?
+
+_Generated 2026-09-02 02:52 UTC. Every replication decision at alpha = 0.05._
+
+RQ4 is pre-registered as **secondary** and answered on a reduced design (Ch1 sec1.6; Ch3 sec3.9): the econometric baselines and **Regime-LSTM-B** only, on assets whose realized variance is built exactly as the S&P's is. The regime model is re-estimated on each asset and never transferred, so what is under test is the pipeline rather than a state map fitted elsewhere.
+
+## The reference result being tested for transfer
+
+On the S&P 500, Regime-LSTM-B scores QLIKE 0.262115 against HAR-RV's 0.27449 (pooled DM p = 0.4589; regime-conditional GW p = 9.99e-09; n = 784). Those numbers are read from the committed Phase-5 artefacts at run time, never stored in this module.
+
+## Verdict
+
+- **RUT: replicates** - all three agree with the reference: the same direction, the same pooled verdict and the same conditional verdict. QLIKE 0.214325 vs 0.226033; DM p = 0.1527; GW p = 0.008694; n = 788.
+- **FTSE: direction only** - the deep model is on the same side of the benchmark, but the conditional test disagrees with the reference -- the state-dependence the S&P result rests on does not reproduce. QLIKE 0.29045 vs 0.299733; DM p = 0.6053; GW p = 0.2539; n = 795.
+
+| asset | verdict | sign_agrees | pooled_agrees | conditional_agrees | qlike_deep | qlike_benchmark | dm_p | gw_p | n |
+|---|---|---|---|---|---|---|---|---|---|
+| RUT | replicates | True | True | True | 0.214325 | 0.226033 | 0.152738 | 0.00869443 | 788 |
+| FTSE | direction only | True | True | False | 0.29045 | 0.299733 | 0.605308 | 0.253893 | 795 |
+
+## Pooled point accuracy, every asset
+
+| asset | model | rank_qlike | qlike | mse | mae | n |
+|---|---|---|---|---|---|---|
+| SPX | LSTM-RVonly | 1 | 0.25964 | 4.02096e-08 | 6.05796e-05 | 784 |
+| SPX | Regime-LSTM-A-RVonly | 2 | 0.261748 | 4.15201e-08 | 6.47241e-05 | 784 |
+| SPX | Regime-LSTM-B | 3 | 0.262115 | 4.15618e-08 | 5.38199e-05 | 784 |
+| SPX | Regime-LSTM-A | 4 | 0.263209 | 4.02829e-08 | 5.80874e-05 | 784 |
+| SPX | LSTM | 5 | 0.265019 | 4.48493e-08 | 5.86277e-05 | 784 |
+| SPX | HAR-RV | 6 | 0.27449 | 4.17633e-08 | 6.04639e-05 | 784 |
+| SPX | GARCH | 7 | 0.330171 | 5.6251e-08 | 7.17175e-05 | 784 |
+| SPX | EGARCH | 8 | 0.332751 | 5.66561e-08 | 6.90158e-05 | 784 |
+| SPX | RW-RV | 9 | 0.358432 | 5.28383e-08 | 6.57894e-05 | 784 |
+| RUT | Regime-LSTM-B | 1 | 0.214325 | 4.5077e-08 | 6.35035e-05 | 788 |
+| RUT | HAR-RV | 2 | 0.226033 | 2.80338e-08 | 6.71635e-05 | 788 |
+| RUT | RW-RV | 3 | 0.285986 | 2.87498e-08 | 6.96422e-05 | 788 |
+| RUT | EGARCH | 4 | 0.443689 | 4.0912e-08 | 0.000126268 | 788 |
+| RUT | GARCH | 5 | 0.481004 | 7.10607e-08 | 0.000146996 | 788 |
+| FTSE | Regime-LSTM-B | 1 | 0.29045 | 7.28987e-08 | 7.03122e-05 | 795 |
+| FTSE | EGARCH | 2 | 0.295974 | 7.11172e-08 | 7.71928e-05 | 795 |
+| FTSE | HAR-RV | 3 | 0.299733 | 7.46588e-08 | 7.83202e-05 | 795 |
+| FTSE | GARCH | 4 | 0.334424 | 8.15877e-08 | 9.08269e-05 | 795 |
+| FTSE | RW-RV | 5 | 0.556184 | 1.16629e-07 | 8.89062e-05 | 795 |
+
+## Rank agreement with the S&P ordering
+
+| asset | n_models_in_common | spearman | kendall | models_in_common |
+|---|---|---|---|---|
+| FTSE | 5 | 0.7 | 0.6 | Regime-LSTM-B, HAR-RV, GARCH, EGARCH, RW-RV |
+| RUT | 5 | 0.6 | 0.4 | Regime-LSTM-B, HAR-RV, GARCH, EGARCH, RW-RV |
+
+Descriptive only. The reduced design puts five models on each robustness board against the S&P's fifteen, so the overlap is small and one swap moves a rank correlation a long way. The per-pair tests below carry the verdict.
+
+## The deep model against each baseline
+
+| asset | model_a | model_b | n | dm_stat_pooled | dm_p_pooled | gw_regime_stat | gw_regime_df | gw_regime_p |
+|---|---|---|---|---|---|---|---|---|
+| SPX | Regime-LSTM-B | HAR-RV | 784 | -0.741055 | 0.458882 | 40.1321 | 3 | 9.98987e-09 |
+| SPX | Regime-LSTM-B | GARCH | 784 | -3.66891 | 0.000260078 | 47.1336 | 3 | 3.25544e-10 |
+| SPX | Regime-LSTM-B | EGARCH | 784 | -4.92223 | 1.04366e-06 | 55.772 | 3 | 4.69896e-12 |
+| SPX | Regime-LSTM-B | RW-RV | 784 | -4.0564 | 5.48246e-05 | 21.5651 | 3 | 8.03344e-05 |
+| RUT | Regime-LSTM-B | HAR-RV | 788 | -1.43131 | 0.152738 | 11.6473 | 3 | 0.00869443 |
+| RUT | Regime-LSTM-B | GARCH | 788 | -8.78358 | 9.79431e-18 | 142.89 | 3 | 9.00265e-31 |
+| RUT | Regime-LSTM-B | EGARCH | 788 | -7.38762 | 3.81849e-13 | 111.867 | 3 | 4.35021e-24 |
+| RUT | Regime-LSTM-B | RW-RV | 788 | -4.96147 | 8.57726e-07 | 27.7528 | 3 | 4.09286e-06 |
+| FTSE | Regime-LSTM-B | HAR-RV | 795 | -0.516989 | 0.605308 | 4.07106 | 3 | 0.253893 |
+| FTSE | Regime-LSTM-B | GARCH | 795 | -3.30107 | 0.00100618 | 21.781 | 3 | 7.24464e-05 |
+| FTSE | Regime-LSTM-B | EGARCH | 795 | -0.481274 | 0.630455 | 4.55986 | 3 | 0.207013 |
+| FTSE | Regime-LSTM-B | RW-RV | 795 | -3.49034 | 0.000509008 | 22.6345 | 3 | 4.81236e-05 |
+
+A **negative** DM statistic means the deep model has the lower loss. The GW column tests whether the better model is predictable from the state known at t-1 - RQ2's question, asked on a new market.
+
+## Per-state QLIKE (lagged t-1 (conditional / implementable))
+
+| asset | model_a | model_b | regime | n | qlike_a | qlike_b | mean_loss_diff | dm_stat | p_value | better |
+|---|---|---|---|---|---|---|---|---|---|---|
+| SPX | Regime-LSTM-B | HAR-RV | calm | 379 | 0.317169 | 0.300816 | 0.0163525 | 0.523067 | 0.601234 | HAR-RV |
+| SPX | Regime-LSTM-B | HAR-RV | transitional | 329 | 0.185059 | 0.236662 | -0.0516029 | -6.03503 | 4.29432e-09 | Regime-LSTM-B |
+| SPX | Regime-LSTM-B | HAR-RV | crisis | 76 | 0.321147 | 0.306957 | 0.0141899 | 0.219437 | 0.826906 | HAR-RV |
+| RUT | Regime-LSTM-B | HAR-RV | calm | 228 | 0.251837 | 0.223921 | 0.027916 | 1.6119 | 0.108373 | HAR-RV |
+| RUT | Regime-LSTM-B | HAR-RV | transitional | 474 | 0.20731 | 0.227291 | -0.0199809 | -2.34569 | 0.019404 | Regime-LSTM-B |
+| RUT | Regime-LSTM-B | HAR-RV | crisis | 86 | 0.153537 | 0.2247 | -0.0711628 | -1.90292 | 0.0604365 | Regime-LSTM-B |
+| FTSE | Regime-LSTM-B | HAR-RV | calm | 376 | 0.349845 | 0.336761 | 0.0130835 | 0.377391 | 0.706097 | HAR-RV |
+| FTSE | Regime-LSTM-B | HAR-RV | transitional | 339 | 0.222527 | 0.238613 | -0.0160852 | -1.77077 | 0.0775004 | Regime-LSTM-B |
+| FTSE | Regime-LSTM-B | HAR-RV | crisis | 80 | 0.299119 | 0.384697 | -0.0855779 | -1.47976 | 0.142914 | Regime-LSTM-B |
+
+## Each asset's own regime model
+
+| asset | selected_lambda | bic_preferred_K_hmm | bic_preferred_K_jump | n_evaluated | n_labelled_at_t_minus_1 | n_calm | n_transitional | n_crisis |
+|---|---|---|---|---|---|---|---|---|
+| SPX | 3 | 3 | 4 | 784 | 784 | 379 | 329 | 76 |
+| RUT | 3 | 3 | 4 | 788 | 788 | 228 | 474 | 86 |
+| FTSE | 3 | 4 | 4 | 795 | 795 | 376 | 339 | 80 |
+
+The penalty was selected on each asset's **own training rows**, by the same rule applied to the same pre-registered grid (fixed 2026-05-15 and asserted identical by the test suite). A differing selected lambda is a result about the method's portability, not a free parameter.
+
+## Sample provenance
+
+| asset | session | n_target_rows | n_after_join | n_modelling_rows | lost_to_calendar_join | pct_lost_to_join | vix_joined | first_date | last_date |
+|---|---|---|---|---|---|---|---|---|---|
+| SPX | US | 5552 | 5552 | 5530 | 0 | 0 | False | 2000-02-03 | 2022-02-25 |
+| RUT | US | 5550 | 5550 | 5528 | 0 | 0 | False | 2000-02-03 | 2022-02-25 |
+| FTSE | UK | 5586 | 5584 | 5562 | 2 | 0.0358 | False | 2000-02-03 | 2022-02-25 |
+
+The modelling frame is an inner join across sources, so an asset trading on another exchange calendar yields a different sample. Ch3 sec3.9 commits to reporting those rows rather than absorbing them.
+
+## What this design cannot establish
+
+The evaluation windows are identical by construction, so the same COVID-19 stress episode sits inside every asset's test block: agreement across assets is **not independent evidence**, and Ch3 sec3.9 says so before any result is read. Disagreement identifies a finding as market-specific without saying which feature of the market is responsible. And the reduced board carries no unconditional LSTM on the robustness assets, so RQ2's decomposition - how much of the edge is the architecture and how much the regime signal - is not reproduced here; only the composite deep model's transfer is.

@@ -1,0 +1,2 @@
+profile,asset,oxfordman_symbol,session,vix_joined,n_target_rows,n_after_join,n_modelling_rows,lost_to_calendar_join,lost_to_warmup_or_nan,pct_lost_to_join,first_date,last_date
+yang_zhang_diagnostic,SPX,.SPX,US,False,6267,6267,6245,0,22,0.0,2000-03-06,2024-12-30

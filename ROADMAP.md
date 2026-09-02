@@ -638,6 +638,51 @@ would look like an oversight if a reader met it undeclared.
 
 ## Changelog
 
+### 2026-09-02 (x.2) — RQ4 has an answer; three defects found by running it
+
+**RQ4 answered.** `.RUT` **replicates** (Regime-LSTM-B QLIKE 0.2143 vs HAR-RV
+0.2260; pooled DM p=0.153 n.s.; regime-conditional GW p=0.0087) — the same
+conjunction as the S&P: ahead in level, invisible pooled, significant
+conditional on the lagged state. `.FTSE` is **direction only** (0.2905 vs 0.2997;
+DM p=0.605; **GW p=0.254**) — the deep model is still ahead, but the
+state-dependence the S&P finding rests on does not reproduce across the market
+and session boundary. All three assets selected the same pre-registered
+**lambda = 3.0**, and `.FTSE`'s BIC prefers **K=4** for the Baum-Welch HMM where
+`.SPX` and `.RUT` prefer 3.
+
+**Both sensitivities answered.** Log-HAR QLIKE **0.4886** against 0.2745 in
+levels, through the real harness, with RW-RV reproducing the headline exactly
+(0.358432, identical to 16 digits) as the same-folds anchor — the "the LSTM only
+wins because it models logs" objection is dead on the record rather than in a
+one-off check. And `refit_every_folds: 1` gives LSTM **0.2607** against the
+frozen **0.2650**: refitting at the baselines' cadence *does* help by ~1.6%, so
+the headline protocol was costing the network something and its result is a
+conservative lower bound — which is what Ch3 §3.6 predicted and could not
+resolve.
+
+**Three defects, all found by running, none by the suite.**
+
+1. **`run_econometric` was the one runner not routed through `milestone_path`.**
+   Both Phase-8 econometric configs therefore wrote to `m02_econometric.md` and
+   **overwrote the headline Phase-2 note twice**. The tables and parquet are
+   profile-named and untouched (still 2026-08-24); only the note was lost, and
+   it regenerates. The unit test covering this tested `milestone_path` *itself* —
+   the exact failure the project's own rule warns about, one layer up: a test
+   that exercises a function in isolation does not certify that anything calls
+   it. There is now a source-level AST guard asserting every runner's
+   `write_milestone` call takes its destination from `milestone_path`.
+2. **The selected penalty came back blank in `m08_rq4_regimes.csv`.**
+   `_regime_summary` looked for a `selected` flag on the lambda sweep table,
+   which Phase 4 does not write. It now reads the causal-signals table — the
+   lambda the run actually used for the signal Phase 5 consumed — rather than
+   re-implementing the selection rule, and warns loudly when it finds nothing.
+   This is the single most important portability number in the phase.
+3. The synthetic fixture behind the end-to-end test had **invented column names**
+   Phase 4 does not use, which is why (2) passed its test. The fixture now
+   matches the real schema.
+
+Suite **398**.
+
 ### 2026-09-02 (x.1) — the first RQ4 run: `.RUT` clean, `.FTSE` crashed, and the third layer of the same defect
 
 **`run_regimes` read `frame["vix_close"]` unconditionally.** The `.RUT` profile

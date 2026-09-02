@@ -1,0 +1,53 @@
+seed: 17
+models:
+  garch:
+    enabled: false
+  egarch:
+    enabled: false
+  har:
+    enabled: true
+    transform: log
+  naive_rw:
+    enabled: true
+harness:
+  return_col: oc_log_return
+  scale: 100.0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+profiles:
+- name: intraday_2019_2022_loghar
+  headline: false
+  target: oxfordman_rv5
+  description: 'LOG-HAR SENSITIVITY (not the headline). HAR-RV estimated on log realized
+    variance and retransformed, on the identical target, window and folds as the Phase-2
+    headline. Answers the ''the LSTM only wins because it models logs'' objection
+    with a harness number rather than a one-off check. RW-RV is carried unchanged
+    as an anchor: its QLIKE must reproduce the headline''s exactly.'
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+paths:
+  tables: results/tables
+  figures: results/figures
+  predictions: results/predictions
+  milestones: results/milestones
+  milestone_file: m08_loghar_sensitivity.md
+  experiments: experiments
+_snapshot_utc: '2026-09-02T02:51:54+00:00'
+_environment:
+  python: 3.12.1
+  python_build: CPython
+  platform: Windows-11-10.0.26200-SP0
+  machine: AMD64
+  torch: 2.13.0+cpu
+  numpy: 2.4.4
+  pandas: 2.3.3
+  scipy: 1.17.1
+  sklearn: 1.8.0
+  arch: 8.0.0
+  hmmlearn: 0.3.3
+  statsmodels: 0.14.6
