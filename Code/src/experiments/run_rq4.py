@@ -3,9 +3,11 @@
 RQ4 (Ch1 §1.6, pre-registered as *secondary*; method in Ch3 §3.9) asks whether the
 answers to RQ1-RQ3 are properties of the **method** or of the **market it was
 developed on**. It is answered on a deliberately reduced design -- the econometric
-baselines and the best-performing deep model only, on two further indices whose
-realized variance is constructed identically to the S&P's -- because re-running
-the full board would multiply comparisons without adding evidence about transfer.
+baselines and one deep model, on two further indices whose realized variance is
+constructed identically to the S&P's -- because re-running the full board would
+multiply comparisons without adding evidence about transfer. That model is
+``DEEP_MODEL`` below, fixed by the pre-registered "best of Phase 5" rule (Ch3
+§3.9); it is NOT the lowest-QLIKE deep model on the S&P, where it ranks third.
 
 This module does not fit anything. Phases 2, 4 and 5 are re-run per asset from
 their own Phase-8 configs; this reads what they wrote and answers the one

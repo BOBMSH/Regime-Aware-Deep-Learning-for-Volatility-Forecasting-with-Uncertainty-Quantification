@@ -38,8 +38,8 @@ series meeting the requirements below drives the pipeline unchanged.
 |---|---|---|---|---|
 | `date` | date | yes | unique, ascending, trading days | join key across sources |
 | intraday prices or a realised measure | float | yes | fixed documented grid; strictly positive | the forecast target |
-| `close` | float | yes | positive | close-to-close return |
-| `open` | float | optional | positive | open-to-close return, matched to a session-only target |
+| `close` | float | yes | positive | closing price; the close-to-close return the regime model emits on, and with `open` the session return the variance baselines take |
+| `open` | float | conditional | required when the target is session-only; positive, same session | with `close`, the open-to-close return, matched to the target's session |
 | implied volatility | float | optional | positive; **same market as the target** | the auxiliary-feature ablation |
 
 Minimum history is `22 + L` trading days of warm-up (the monthly HAR aggregate plus the network
