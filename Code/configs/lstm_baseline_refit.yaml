@@ -1,0 +1,109 @@
+# Phase 8 sensitivity -- the refit asymmetry, tested rather than declared.
+# Run with:  python -m src.experiments.run_lstm --config lstm_baseline_refit
+#
+# WHAT THIS ANSWERS. The headline protocol trains the deep models ONCE on all
+# pre-test data and freezes them (`refit_every_folds: 0`), while GARCH/EGARCH/
+# HAR-RV refit every 21 trading days on an expanding window. Both are
+# leakage-free and the asymmetry runs *against* the networks, so their wins are
+# conservative -- but it also means a deep model that loses in a state far from
+# its training window cannot be told apart, on the headline evidence alone, from
+# one whose training window has simply gone stale.
+#
+# Ch3 sec3.6 says exactly that, and then promises the separation:
+#
+#   "Separating the two requires refitting the network at the baselines'
+#    cadence, a sensitivity this design admits rather than resolves and which
+#    Chapter 4 reports."
+#
+# This config is that sensitivity. It is the ONLY change from
+# configs/lstm_baseline.yaml: `harness.refit_every_folds: 1` retrains the network
+# on the expanding window at every walk-forward origin -- the econometric
+# baselines' own cadence -- so the two protocols differ in nothing else.
+#
+# WHY THE SWEEP IS OFF. Re-searching hyperparameters here would confound the
+# question: a difference could then be the refit cadence OR a different
+# architecture found by a fresh search. The model block below is the Phase-3
+# validation selection (hidden 128, lookback 10, lr 1e-3), held fixed, so the
+# contrast isolates the cadence and nothing else. Run with --no-sweep as well if
+# you want belt and braces; `sweep.enabled: false` already does it.
+#
+# HOW TO READ THE RESULT. Two outcomes, both useful:
+#   * Refitting does NOT materially improve the network -> the frozen-window
+#     protocol was not costing it anything, the headline result stands as
+#     measured, and "training-window staleness" is eliminated as the explanation
+#     for its weakness in high-volatility states.
+#   * Refitting DOES improve it -> the headline understates the architecture, the
+#     asymmetry was a real handicap, and Ch5 must say the deep result is a lower
+#     bound. Note that the refitted numbers are then NOT the headline: they carry
+#     a stochastic-optimiser confound the frozen protocol exists to avoid (each
+#     refit lands the optimiser somewhere new, and with one seed that movement is
+#     not measurable), which is why this is a sensitivity and not a replacement.
+#
+# COST. `refit_every_folds: 1` retrains at every fold rather than once, so expect
+# roughly (number of test folds) times the Phase-3 training time.
+
+seed: 17
+
+# --- Network + optimisation: the Phase-3 validation selection, held fixed -----
+model:
+  features: [log_rv, oc_log_return]
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 150
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+
+# --- No sweep: see "WHY THE SWEEP IS OFF" above ------------------------------
+sweep:
+  enabled: false
+  hidden_size: [128]
+  lookback: [10]
+  lr: [1.0e-3]
+
+# --- Robustness rows off: this run answers one question ----------------------
+# The RV-only and VIX ablations are information-set questions and are answered on
+# the headline protocol in Phase 3. Repeating them here would multiply runs
+# without bearing on the cadence question.
+robustness:
+  rv_only_lstm: false
+  rv_only_features: [log_rv]
+  vix_lstm: false
+  vix_features: [log_rv, oc_log_return, log_vix]
+
+# --- The one change from the headline ----------------------------------------
+harness:
+  refit_every_folds: 1       # <- THE SENSITIVITY. Headline is 0 (train once, freeze).
+  refit_frequency_days: 21   # identical fold cadence, so the folds are the same folds
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profile ------------------------------------------------------
+# A distinct profile name so every artefact this writes sits beside the headline
+# rather than on top of it: m03_lstm_intraday_2019_2022_refit1_*.
+profiles:
+  - name: intraday_2019_2022_refit1
+    headline: false
+    target: oxfordman_rv5
+    description: "REFIT SENSITIVITY (not the headline). Identical to the Phase-3 LSTM in every respect except that the network is re-estimated on the expanding window at every walk-forward origin, matching the econometric baselines' monthly cadence. Isolates training-window staleness from architecture; Ch3 sec3.6."
+    baseline_predictions: "results/predictions/m02_intraday_2019_2022.parquet"
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m08_refit_sensitivity.md"
+  experiments: "experiments"

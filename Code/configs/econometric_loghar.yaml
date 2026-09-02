@@ -1,0 +1,70 @@
+# Phase 8 sensitivity -- HAR-RV estimated in logs, through the real harness.
+# Run with:  python -m src.experiments.run_econometric --config econometric_loghar
+#
+# WHAT THIS ANSWERS. Every network in this study is estimated on log realized
+# variance and retransformed to the variance scale (Ch3 Eq 3.4), while HAR-RV is
+# estimated in levels as Corsi (2009) specifies. That invites one objection, and
+# it is the objection an examiner reaches for first:
+#
+#   "The LSTM only beats HAR-RV because it models logs and HAR-RV does not."
+#
+# The objection is answerable because `har.transform` has been implemented and
+# config-exposed since Phase 2 -- but it had never been run through the harness,
+# so the answer existed only as a one-off check (log-HAR QLIKE 0.4882 against
+# 0.2745 in levels). A number produced outside the walk-forward is not evidence
+# about the walk-forward, and this project's standing rule is that a quoted
+# figure comes off a regenerable artefact. This config puts it on the record.
+#
+# WHY LOG-HAR IS EXPECTED TO BE WORSE, AND WHY THAT IS THE POINT. Fitting in logs
+# and exponentiating returns a conditional MEDIAN, while QLIKE is defined for a
+# conditional MEAN; on a right-skewed target the two differ systematically, and
+# the retransformation bias runs against the log specification. The same issue is
+# why Ch3 Eq 3.4 applies a retransformation to every model estimated in logs and
+# why the quantile head is reported both ways. So this run does not show that
+# logs are a bad idea -- it shows that the level/log distinction does not explain
+# the deep models' advantage, which is the claim under test.
+#
+# ONLY HAR AND THE REFERENCE FLOOR ARE ENABLED. GARCH and EGARCH do not touch the
+# transform, so re-running them would burn folds to reproduce numbers that are
+# already committed. The random walk is kept as a same-window anchor confirming
+# the folds are the folds.
+
+seed: 17
+
+models:
+  garch:
+    enabled: false
+  egarch:
+    enabled: false
+  har:
+    enabled: true
+    transform: log             # <- THE SENSITIVITY. Headline is `level` (Corsi original).
+  naive_rw:
+    enabled: true              # unchanged anchor: must reproduce the headline's RW-RV
+
+harness:
+  return_col: oc_log_return
+  scale: 100.0
+  refit_frequency_days: 21     # identical cadence -> identical folds
+  scheme: anchored
+  eval_segment: test
+
+profiles:
+  - name: intraday_2019_2022_loghar
+    headline: false
+    target: oxfordman_rv5
+    description: "LOG-HAR SENSITIVITY (not the headline). HAR-RV estimated on log realized variance and retransformed, on the identical target, window and folds as the Phase-2 headline. Answers the 'the LSTM only wins because it models logs' objection with a harness number rather than a one-off check. RW-RV is carried unchanged as an anchor: its QLIKE must reproduce the headline's exactly."
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m08_loghar_sensitivity.md"
+  experiments: "experiments"

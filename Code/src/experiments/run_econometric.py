@@ -30,7 +30,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.data.datasets import build_econometric_frame
+from src.data.datasets import attrition_record, frame_for_profile
 from src.data.splits import SplitConfig
 from src.evaluation.rolling import ACTUAL_COL, evaluate_predictions, run_walk_forward
 from src.models.econometric import (
@@ -125,7 +125,7 @@ def run_profile(data_cfg, econ_cfg, profile) -> dict:
     log.info("=" * 70)
     log.info("PROFILE %s | target=%s | %s", name, profile.target, profile.description)
 
-    frame = build_econometric_frame(data_cfg, target=profile.target)
+    frame = frame_for_profile(data_cfg, profile)
 
     sp = profile.splits
     split_cfg = SplitConfig(
@@ -155,11 +155,27 @@ def run_profile(data_cfg, econ_cfg, profile) -> dict:
     # Figure.
     fig_path = repo_path(econ_cfg.paths.figures, "m02", f"{name}_forecast_vs_actual.png")
     ensure_dir(fig_path.parent)
+    # The asset comes off the frame, never a literal: this title read "S&P 500"
+    # unconditionally until 2026-09-01, so a Phase-8 profile would have labelled a
+    # Russell 2000 chart with the wrong index and nothing would have said so.
+    asset_label = str(frame.attrs.get("asset", "")) or "primary asset"
     plot_forecast_vs_actual(
         preds, [m.name for m in models],
-        title=f"S&P 500 realized volatility: forecast vs actual ({name})",
+        title=f"{asset_label} realized volatility: forecast vs actual ({name})",
         path=fig_path,
     )
+
+    # Sample provenance. Ch3 §3.9 commits to reporting the rows an asset loses to
+    # the calendar join rather than absorbing them silently; on `.SPX` the number
+    # is zero because every source shares the NYSE calendar, and on any asset
+    # trading elsewhere it is the first thing that explains a differing n.
+    attrition = attrition_record(frame, profile_name=name)
+    att_path = repo_path(econ_cfg.paths.tables, f"m02_{name}_sample.csv")
+    ensure_dir(att_path.parent)
+    pd.DataFrame([attrition]).to_csv(att_path, index=False)
+    log.info("sample provenance -> %s (%d modelling rows, %d lost to the calendar "
+             "join, %d to warm-up/NaN)", att_path, attrition["n_modelling_rows"],
+             attrition["lost_to_calendar_join"], attrition["lost_to_warmup_or_nan"])
 
     # Model diagnostics for the milestone note.
     diag = _collect_diagnostics(models)
@@ -180,6 +196,8 @@ def run_profile(data_cfg, econ_cfg, profile) -> dict:
         "table_path": tbl_path,
         "fig_path": fig_path,
         "target_autocorr1": float(frame["rv"].autocorr(1)),
+        "attrition": attrition,
+        "attrition_path": att_path,
     }
 
 

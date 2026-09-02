@@ -1,0 +1,5 @@
+regime_shift,timing,regime,n,HAR-RV,Regime-LSTM-B
+1,lagged t-1 (conditional / implementable),calm,376,0.33676122781843,0.34984469565494875
+1,lagged t-1 (conditional / implementable),transitional,339,0.23861254629646383,0.22252736807946236
+1,lagged t-1 (conditional / implementable),crisis,80,0.38469731246135314,0.29911939944877425
+1,lagged t-1 (conditional / implementable),all,795,0.29973290547313103,0.29045023308314516

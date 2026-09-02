@@ -93,3 +93,44 @@ def snapshot_config(cfg: DictConfig, run_dir: Path | str) -> Path:
 def repo_path(*parts: str) -> Path:
     """Resolve a path relative to the Code/ repo root."""
     return REPO_ROOT.joinpath(*parts)
+
+
+def milestone_path(cfg, default: str, profile_name: str, *, n_profiles: int = 1) -> Path:
+    """Resolve where one profile's milestone note is written.
+
+    Two things this settles that were previously left to luck.
+
+    **Variant isolation.** ``paths.milestone_file`` overrides the phase default,
+    so a robustness variant (the Baum-Welch-conditioned run, a Phase-8 asset)
+    cannot overwrite the headline note. Three runners already had this idiom and
+    three did not; all six now go through here.
+
+    **Multi-profile safety.** Every runner writes its milestone *inside* the
+    profile loop, so a config carrying two profiles silently wrote one note and
+    kept only the last. That never bit because every config to date had exactly
+    one profile -- and Phase 8 is the first with two, which is exactly when a
+    latent trap of this shape fires. A name containing ``{profile}`` is formatted
+    per profile; a name without one is **rejected** when there is more than one
+    profile, rather than quietly losing a note.
+
+    Parameters
+    ----------
+    cfg : the config node carrying ``paths`` (the whole config, not ``cfg.paths``).
+    default : the phase's default filename, used when ``paths.milestone_file``
+        is absent.
+    profile_name : substituted into a ``{profile}`` placeholder.
+    n_profiles : how many profiles this run will write. Only used to decide
+        whether a placeholder is mandatory.
+    """
+    paths = cfg.paths
+    name = str(paths.get("milestone_file") or default)
+    if "{profile}" in name:
+        name = name.format(profile=profile_name)
+    elif int(n_profiles) > 1:
+        raise ValueError(
+            f"config has {n_profiles} profiles but paths.milestone_file is "
+            f"{name!r}, which has no '{{profile}}' placeholder -- every profile "
+            "would write to the same file and only the last would survive. "
+            "Use e.g. 'm08_regimes_{profile}.md'."
+        )
+    return repo_path(paths.milestones, name)

@@ -1,0 +1,5 @@
+regime_shift,timing,regime,n,HAR-RV,Regime-LSTM-B
+0,contemporaneous (ex-post description),calm,376,0.2370527316899939,0.1943363551746472
+0,contemporaneous (ex-post description),transitional,338,0.2771438295478819,0.28850304339814375
+0,contemporaneous (ex-post description),crisis,81,0.6849533129446587,0.7447337911958084
+0,contemporaneous (ex-post description),all,795,0.29973290547313103,0.29045023308314516

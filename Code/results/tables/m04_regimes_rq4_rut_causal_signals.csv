@@ -1,0 +1,3 @@
+signal,lambda,n_test,test_switches,test_mean_duration_days,mean_max_posterior_test,mean_abs_smoothed_minus_filtered_test,test_days_state0,test_days_state1,test_days_state2,agreement_with_other_signal_test
+jump_penalised_hmm,3.0,788,40,19.21951219512195,0.8504926664447278,0.032101393662807516,228,474,86,0.618020304568528
+baum_welch_hmm,,788,46,16.76595744680851,0.8704760757681185,0.029045603164471797,511,207,70,0.618020304568528

@@ -35,13 +35,13 @@ import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf
 
-from src.data.datasets import build_econometric_frame
+from src.data.datasets import frame_for_profile
 from src.data.splits import Fold, SplitConfig
 from src.evaluation.metrics import mae, mse, qlike
 from src.evaluation.rolling import ACTUAL_COL, evaluate_predictions, run_walk_forward
 from src.evaluation.significance import diebold_mariano
 from src.models.deep import LSTMForecaster
-from src.utils.config import load_config, repo_path, snapshot_config
+from src.utils.config import load_config, milestone_path, repo_path, snapshot_config
 from src.utils.io import ensure_dir, from_parquet, to_parquet
 from src.utils.logging import get_logger
 from src.utils.seeding import set_seed
@@ -386,7 +386,7 @@ def run_profile(data_cfg, lcfg, profile, args) -> dict:
             _all_feats += list(OmegaConf.to_container(_rob[_key], resolve=True))
     # Both VIX feature builders read the same underlying `vix_close` column.
     include_vix = any(f in ("vix_close", "log_vix") for f in _all_feats)
-    frame = build_econometric_frame(data_cfg, target=profile.target, include_vix=include_vix)
+    frame = frame_for_profile(data_cfg, profile, include_vix=include_vix)
 
     sp = profile.splits
     split_cfg = SplitConfig(
@@ -543,7 +543,8 @@ def main(argv: list[str] | None = None) -> int:
                                              float(v) if isinstance(v, np.floating) else v)
                                          for k, v in r["best"].items()}),
                        run_dir / f"best_hparams_{r['name']}.yaml")
-        write_milestone(r, repo_path(lcfg.paths.milestones, "m03_lstm.md"))
+        write_milestone(r, milestone_path(lcfg, "m03_lstm.md", r["name"],
+                                          n_profiles=len(lcfg.profiles)))
     log.info("Phase 3 complete: %d profile(s).", len(results))
     return 0
 

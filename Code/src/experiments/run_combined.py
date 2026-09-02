@@ -70,7 +70,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf
 
-from src.data.datasets import build_econometric_frame
+from src.data.datasets import frame_for_profile
 from src.data.splits import SplitConfig
 from src.evaluation.calibration import (
     lognormal_interval,
@@ -94,7 +94,8 @@ from src.evaluation.significance import (
 from src.experiments.report_coverage import conditional_table, unconditional_table
 from src.experiments.run_uq import add_quantile_mean_column, run_uq_walk_forward
 from src.models.deep import MCDropoutRegimeExpertForecaster
-from src.utils.config import load_config, repo_path, snapshot_config
+from src.utils.config import (load_config, milestone_path, repo_path,
+                              snapshot_config)
 from src.utils.io import ensure_dir, from_parquet, to_parquet
 from src.utils.logging import get_logger
 from src.utils.plotting import save_fig
@@ -1266,7 +1267,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         preds = from_parquet(pred_path).copy()
         n_mc = int(cfg.uq.mc_dropout.mc_samples)
     else:
-        frame = build_econometric_frame(data_cfg, target=profile.target, include_vix=False)
+        frame = frame_for_profile(data_cfg, profile, include_vix=False)
         frame = attach_regime(frame, cfg.regime)
         sp = profile.splits
         split_cfg = SplitConfig(
@@ -1390,10 +1391,10 @@ def main(argv: list[str] | None = None) -> int:
                         f"run_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     snapshot_config(cfg, run_dir)
 
-    milestone_file = str(cfg.paths.get("milestone_file") or "m07_combined.md")
     for profile in cfg.profiles:
         ctx = run_profile(data_cfg, cfg, profile, args)
-        write_milestone(ctx, repo_path(cfg.paths.milestones, milestone_file))
+        write_milestone(ctx, milestone_path(cfg, "m07_combined.md", profile.name,
+                                            n_profiles=len(cfg.profiles)))
     log.info("Phase 7 complete.")
     return 0
 

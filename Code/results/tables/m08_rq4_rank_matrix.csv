@@ -1,0 +1,10 @@
+model,FTSE,RUT,SPX
+LSTM-RVonly,,,1.0
+Regime-LSTM-A-RVonly,,,2.0
+Regime-LSTM-B,1.0,1.0,3.0
+Regime-LSTM-A,,,4.0
+LSTM,,,5.0
+HAR-RV,3.0,2.0,6.0
+GARCH,4.0,5.0,7.0
+EGARCH,2.0,4.0,8.0
+RW-RV,5.0,3.0,9.0

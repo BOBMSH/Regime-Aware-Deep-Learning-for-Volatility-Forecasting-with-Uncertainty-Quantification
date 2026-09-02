@@ -1,0 +1,2 @@
+profile,asset,oxfordman_symbol,session,vix_joined,n_target_rows,n_after_join,n_modelling_rows,lost_to_calendar_join,lost_to_warmup_or_nan,pct_lost_to_join,first_date,last_date
+rq4_ftse,FTSE,.FTSE,UK,False,5586,5584,5562,2,22,0.03580379520229144,2000-02-03,2022-02-25

@@ -1,0 +1,4 @@
+state,label,stay_prob,expected_duration_days,stationary_prob,empirical_freq,mean_run_length_days
+0,calm,0.9777,44.8,0.4519,0.4018,105.8
+1,transitional,0.9747,39.5,0.4605,0.5166,109.8
+2,crisis,0.9803,50.7,0.0877,0.0816,75.2

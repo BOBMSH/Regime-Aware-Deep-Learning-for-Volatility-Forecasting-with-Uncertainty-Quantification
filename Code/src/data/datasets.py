@@ -297,3 +297,68 @@ def build_econometric_frame(
             100.0 * (n_rv - n_joined) / n_rv, spec.key, n_rv - n_joined, n_rv,
         )
     return frame
+
+
+def frame_for_profile(
+    cfg: DictConfig, profile, *, include_vix: bool = False, yz_window: int = 21
+) -> pd.DataFrame:
+    """Build the modelling frame an evaluation *profile* asks for.
+
+    Every experiment runner takes the same two things from a profile -- the
+    target proxy and, from 2026-09-01, the **asset** -- so they take them
+    through here rather than each spelling out the call. The asset key is the
+    reason this exists: :func:`resolve_asset` and the ``asset=`` parameter of
+    :func:`build_econometric_frame` were added on 2026-08-30 and, until this
+    helper, *no runner passed either*. A Phase-8 profile naming ``RUT`` would
+    have been silently run on ``.SPX`` -- the registry would have been a fourth
+    place holding the asset's identity with no consumer, which is precisely the
+    failure the registry was built to end.
+
+    ``profile.asset`` is optional and absent from every pre-Phase-8 config, so
+    omitting it resolves the configured primary asset and reproduces the
+    previous behaviour exactly.
+
+    Parameters
+    ----------
+    profile : the profile node (needs ``target``; may carry ``asset``).
+    include_vix : join the auxiliary implied-volatility column. Subject to the
+        resolved asset's ``vix_feature`` flag -- an asset whose options trade on
+        another market never receives it, whatever the caller asks for.
+    """
+    asset = profile.get("asset", None) if hasattr(profile, "get") else None
+    return build_econometric_frame(
+        cfg,
+        target=profile.target,
+        asset=(str(asset) if asset is not None else None),
+        include_vix=include_vix,
+        yz_window=yz_window,
+    )
+
+
+def attrition_record(frame: pd.DataFrame, *, profile_name: str = "") -> dict:
+    """Flatten ``frame.attrs`` into one reportable row.
+
+    Chapter 3 §3.9 commits to reporting the rows an asset loses to the calendar
+    join rather than absorbing them silently, and :func:`build_econometric_frame`
+    has recorded them in ``frame.attrs["join_attrition"]`` since 2026-08-30 --
+    but nothing read that key, so the commitment had no consumer either. Phase 8
+    writes this row per asset.
+    """
+    att = dict(frame.attrs.get("join_attrition", {}) or {})
+    n_target = int(att.get("n_target_rows", 0) or 0)
+    lost = int(att.get("lost_to_join", 0) or 0)
+    return {
+        "profile": profile_name,
+        "asset": frame.attrs.get("asset", ""),
+        "oxfordman_symbol": frame.attrs.get("oxfordman_symbol", ""),
+        "session": frame.attrs.get("session", ""),
+        "vix_joined": bool(frame.attrs.get("vix_joined", False)),
+        "n_target_rows": n_target,
+        "n_after_join": int(att.get("n_after_join", 0) or 0),
+        "n_modelling_rows": int(att.get("n_after_dropna", len(frame))),
+        "lost_to_calendar_join": lost,
+        "lost_to_warmup_or_nan": int(att.get("lost_to_warmup_or_nan", 0) or 0),
+        "pct_lost_to_join": (100.0 * lost / n_target) if n_target else float("nan"),
+        "first_date": str(frame.index.min().date()) if len(frame) else "",
+        "last_date": str(frame.index.max().date()) if len(frame) else "",
+    }

@@ -1,0 +1,3 @@
+asset,reference,n_models_in_common,spearman,kendall,models_in_common
+FTSE,SPX,5,0.7,0.6,"Regime-LSTM-B, HAR-RV, GARCH, EGARCH, RW-RV"
+RUT,SPX,5,0.6,0.39999999999999997,"Regime-LSTM-B, HAR-RV, GARCH, EGARCH, RW-RV"

@@ -1,0 +1,99 @@
+# Phase 8 / RQ4 -- econometric baselines on the robustness assets.
+# Run with:  python -m src.experiments.run_econometric --config econometric_rq4
+#
+# RQ4 asks whether the answers to RQ1-RQ3 are properties of the METHOD or of the
+# market it was developed on (Ch1 sec1.6; Ch3 sec3.9). It is answered on a
+# deliberately reduced design -- the econometric baselines and the best-performing
+# deep model only, on two further indices whose realized variance is constructed
+# identically to the S&P's. This file is the baselines half of that design.
+#
+# WHAT IS AND IS NOT VARIED. Everything here is the headline configuration of
+# configs/econometric.yaml except the asset: the same models, the same
+# open-to-close return input, the same monthly refit on an anchored expanding
+# window, the same split dates, the same target construction (Oxford-Man rv5).
+# Only `assets.registry.<key>` changes what data those procedures see. Holding
+# the protocol fixed is what makes a difference across assets attributable to the
+# market rather than to the treatment.
+#
+# THE SPLIT DATES ARE DELIBERATELY IDENTICAL. Both series span 2000 ->
+# 2022-02-25 in the Oxford-Man library with no missing rv5, so the same calendar
+# boundaries partition all three assets. Ch3 sec3.9 records the consequence: the
+# evaluation windows overlap, so agreement across assets is not independent
+# evidence wherever the same crisis falls inside both.
+#
+# THE SAMPLE WILL DIFFER ANYWAY, and that is reported rather than absorbed. The
+# modelling frame is an inner join across sources, so `.FTSE` -- which trades on
+# the LSE calendar while its OHLC comes from a different holiday schedule -- keeps
+# fewer rows than `.SPX`. `run_econometric` writes the count to
+# results/tables/m02_<profile>_sample.csv for every profile, this one included.
+
+seed: 17
+
+# --- Models (identical to the headline; see configs/econometric.yaml) --------
+models:
+  garch:
+    enabled: true
+    dist: normal
+    p: 1
+    q: 1
+  egarch:
+    enabled: true
+    dist: normal
+    p: 1
+    o: 1
+    q: 1
+  har:
+    enabled: true
+    transform: level           # Corsi original -- the log variant is a separate config
+  naive_rw:
+    enabled: true
+
+# --- Shared walk-forward harness (identical to the headline) ----------------
+harness:
+  return_col: oc_log_return    # open-to-close, matched to the session-only rv5 target
+  scale: 100.0
+  refit_frequency_days: 21     # monthly refit
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profiles: one per robustness asset ---------------------------
+# `asset` is the registry key from configs/data.yaml (assets.registry). It
+# resolves the yfinance OHLC alias, the Oxford-Man realized-measure symbol and
+# the VIX eligibility together, so the returns and the realized variance in one
+# frame cannot come from two different indices.
+profiles:
+  - name: rq4_rut
+    headline: false
+    asset: RUT
+    target: oxfordman_rv5
+    description: "RQ4 robustness asset: Russell 2000 (.RUT), US small-cap on the same session as the S&P 500. Same protocol, same window, same target construction; test 2019-01 -> 2022-02-25 with the COVID-19 crash out-of-sample. A US small-cap index shares the S&P's calendar and macro shocks but has materially different microstructure, so a conclusion that survives here is not an artefact of large-cap dynamics."
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+  - name: rq4_ftse
+    headline: false
+    asset: FTSE
+    target: oxfordman_rv5
+    description: "RQ4 robustness asset: FTSE 100 (.FTSE), a different market and a different trading session. The harder of the two transfers: the session does not overlap the S&P's for most of the day, the holiday calendar differs, and the VIX is not a valid auxiliary input (assets.registry.FTSE.vix_feature: false). Same protocol, same window, same target construction."
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+# --- Output paths ------------------------------------------------------------
+# milestone_file carries a {profile} placeholder because this config has more
+# than one profile: without it every profile would write the same note and only
+# the last would survive. src.utils.config.milestone_path rejects the omission.
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m08_econometric_{profile}.md"
+  experiments: "experiments"

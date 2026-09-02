@@ -1,0 +1,121 @@
+# Phase 8 / RQ4 -- regime identification on the robustness assets.
+# Run with:  python -m src.experiments.run_regimes --config hmm_rq4
+#
+# ROADMAP Phase 8, scope decision 1: REGIMES ARE RE-ESTIMATED PER ASSET, never
+# transferred from the S&P 500. RQ4 asks whether the *conclusions* generalise,
+# and a conclusion is about the pipeline; the pipeline includes this phase, so
+# substituting the S&P's regime path would test the pipeline-minus-Phase-4 and
+# quietly answer a different question. Ch3 sec3.9 states the same requirement
+# from the writing side: "a state path fitted to one market's return
+# distribution is not a description of another's; transferring it would test the
+# map rather than the method."
+#
+# The cost argument does not rescue the alternative either. The expensive
+# component is the LSTM, which must be refit per asset regardless; this stage is
+# a Gaussian HMM on ~5.5k standardised daily returns.
+#
+# EVERY SELECTION QUANTITY BELOW IS COPIED FROM configs/hmm.yaml UNCHANGED.
+# That is the point, and it is enforced rather than trusted:
+# tests/test_rq4.py::test_rq4_regime_config_matches_the_preregistered_selection
+# asserts this file's jump-penalty grid, persistence floor, K grid and emission
+# feature are identical to the headline config's. If someone widens a grid here
+# to make an asset behave, the suite fails. Applying the same rule to the same
+# grid on each asset's own training rows is what makes a differing lambda a
+# FINDING about the method's portability rather than a free parameter.
+
+seed: 17
+
+# --- Features (identical to the headline: standardised daily log returns) ----
+features:
+  primary: returns
+  ablation: returns_logrv
+  standardize: true
+
+# --- Regime models (identical to the headline) -------------------------------
+models:
+  hmm:
+    enabled: true
+    covariance_type: full
+    n_init: 12
+    n_iter: 200
+    tol: 1.0e-4
+  jump:
+    enabled: true
+    n_init: 12
+    max_iter: 40
+
+# --- Number of regimes (identical grid; K is FIXED at 3, not selected) -------
+# BIC is computed over this grid and REPORTED as a sensitivity; the headline K is
+# fixed at 3 on interpretability grounds (Ch2 sec2.4, Guidolin 2011; Ch3 sec3.3).
+# Reporting each asset's BIC-preferred K beside the S&P's is itself an RQ4
+# result: if .FTSE's criterion prefers a different count, that is evidence about
+# how portable a three-state description of "calm / transitional / crisis" is.
+k_grid: [2, 3, 4]
+
+# --- Jump penalty: THE SAME PRE-REGISTERED GRID AND THE SAME RULE ------------
+# Fixed 2026-05-15, before any Phase-5 result existed, and not widened for this
+# phase. The rule is "the smallest lambda whose mean regime duration clears the
+# persistence floor", applied to each asset's own TRAINING rows only.
+jump_penalty_grid: [1.0, 3.0, 10.0, 30.0, 100.0, 300.0]
+jump_penalty_sensitivity_grid: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 5.0, 10.0, 30.0, 100.0, 300.0]
+
+jump_penalty: 30.0            # overridden by select_by_persistence below
+select_by_persistence:
+  enabled: true
+  min_mean_duration_days: 15  # identical floor
+
+# --- External validation of the regime map -----------------------------------
+# The VIX prices S&P 500 options, so `assets.registry.FTSE.vix_feature: false`
+# refuses the column for that asset and the .FTSE modelling frame carries no
+# `vix_close` at all -- deliberately, since joining it would also intersect the
+# LSE and NYSE calendars and shrink the sample with no error.
+#
+# So the two assets are validated against different series, and the runner names
+# them differently everywhere so the numbers can never be compared as though they
+# were the same diagnostic:
+#
+#   .RUT  -> VIX quantile concordance  -> m04_regimes_rq4_rut_vix_confusion.csv
+#   .FTSE -> its OWN realised variance -> m04_regimes_rq4_ftse_rv_concordance.csv
+#
+# The realised-variance fallback is still external to the ESTIMATOR: the regime
+# model is fitted on standardised daily log returns and never sees `rv`, so
+# concordance with it is a real check that the inferred states track
+# independently measured volatility. It is weaker than the VIX check only in
+# that `rv` is also the forecast target, which the milestone states.
+vix_validation:
+  enabled: true
+
+# --- Causal (leakage-free) posteriors: what Phase 5 consumes -----------------
+# Identical split dates to the headline, for the reason given in
+# configs/econometric_rq4.yaml: the same calendar boundaries partition all three
+# assets, and the overlap is disclosed rather than engineered away.
+causal_demo:
+  enabled: true
+  splits:
+    train_end: "2015-12-31"
+    val_start: "2016-01-01"
+    val_end: "2018-12-31"
+    test_start: "2019-01-01"
+    test_end: "2022-02-25"
+
+# --- Evaluation profiles: one per robustness asset ---------------------------
+profiles:
+  - name: rq4_rut
+    headline: false
+    asset: RUT
+    target: oxfordman_rv5
+    description: "Regime detection on Russell 2000 daily data over the Oxford-Man .RUT coverage. HMM + Nystrup jump model on that asset's own standardised daily log returns; K reported over {2,3,4} by BIC but fixed at 3; lambda selected on .RUT training rows by the pre-registered rule."
+  - name: rq4_ftse
+    headline: false
+    asset: FTSE
+    target: oxfordman_rv5
+    description: "Regime detection on FTSE 100 daily data over the Oxford-Man .FTSE coverage. Same estimators, same pre-registered grid and rule, applied to .FTSE training rows. The VIX confusion table is a cross-market diagnostic on this asset, not a same-market validation."
+
+# --- Output paths ------------------------------------------------------------
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m08_regimes_{profile}.md"
+  experiments: "experiments"

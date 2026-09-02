@@ -49,7 +49,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf
 
-from src.data.datasets import build_econometric_frame
+from src.data.datasets import frame_for_profile
 from src.data.splits import SplitConfig, walk_forward_folds
 from src.evaluation.calibration import (
     interval_metrics,
@@ -70,7 +70,8 @@ from src.evaluation.regime_timing import (
 from src.evaluation.rolling import ACTUAL_COL
 from src.evaluation.significance import diebold_mariano
 from src.models.deep import MCDropoutLSTMForecaster, QuantileLSTMForecaster
-from src.utils.config import load_config, repo_path, snapshot_config
+from src.utils.config import (load_config, milestone_path, repo_path,
+                              snapshot_config)
 from src.utils.io import ensure_dir, from_parquet, to_parquet
 from src.utils.logging import get_logger
 from src.utils.seeding import set_seed
@@ -1156,7 +1157,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     log.info("=" * 70)
     log.info("PROFILE %s | target=%s", name, profile.target)
 
-    frame = build_econometric_frame(data_cfg, target=profile.target, include_vix=False)
+    frame = frame_for_profile(data_cfg, profile, include_vix=False)
     reg_state_full = attach_regime_state(frame, cfg.regime)
     labels = list(OmegaConf.to_container(cfg.regime.labels, resolve=True))
     levels = [float(x) for x in OmegaConf.to_container(cfg.uq.levels, resolve=True)]
@@ -1346,10 +1347,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Config-driven milestone filename so the Baum-Welch robustness variant
     # (configs/uq_hmm.yaml) cannot overwrite the headline note.
-    milestone_file = str(cfg.paths.get("milestone_file") or "m06_uq.md")
     for profile in cfg.profiles:
         ctx = run_profile(data_cfg, cfg, profile, args)
-        write_milestone(ctx, repo_path(cfg.paths.milestones, milestone_file))
+        write_milestone(ctx, milestone_path(cfg, "m06_uq.md", profile.name,
+                                            n_profiles=len(cfg.profiles)))
     log.info("Phase 6 complete.")
     return 0
 

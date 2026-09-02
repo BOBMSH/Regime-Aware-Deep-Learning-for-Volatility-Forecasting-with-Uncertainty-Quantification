@@ -47,7 +47,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf
 
-from src.data.datasets import build_econometric_frame
+from src.data.datasets import frame_for_profile
 from src.data.splits import SplitConfig, walk_forward_folds
 from src.evaluation.metrics import qlike
 from src.evaluation.regime_timing import (
@@ -59,7 +59,8 @@ from src.evaluation.regime_timing import (
 from src.evaluation.rolling import ACTUAL_COL, evaluate_predictions, run_walk_forward
 from src.evaluation.significance import diebold_mariano, model_confidence_set
 from src.models.deep import LSTMForecaster, RegimeExpertForecaster
-from src.utils.config import load_config, repo_path, snapshot_config
+from src.utils.config import (load_config, milestone_path, repo_path,
+                              snapshot_config)
 from src.utils.io import ensure_dir, from_parquet, to_parquet
 from src.utils.logging import get_logger
 from src.utils.seeding import set_seed
@@ -603,8 +604,17 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     log.info("=" * 70)
     log.info("PROFILE %s | target=%s", name, profile.target)
 
-    frame = build_econometric_frame(data_cfg, target=profile.target, include_vix=True)
-    frame = attach_regime(frame, cfg.regime)
+    frame = frame_for_profile(data_cfg, profile, include_vix=True)
+    # A profile may name its own Phase-4 parquet. Phase 8 is why: RQ4 re-estimates
+    # the regime model per asset (ROADMAP Phase 8, decision 1), so one config
+    # carries two profiles reading two different signals. Absent the override the
+    # top-level `regime.source` applies, which is every pre-Phase-8 config.
+    rcfg = cfg.regime
+    regime_source = str(profile.get("regime_source", "") or cfg.regime.source)
+    if regime_source != str(cfg.regime.source):
+        rcfg = OmegaConf.merge(cfg.regime, {"source": regime_source})
+        log.info("profile %s overrides the regime source -> %s", name, regime_source)
+    frame = attach_regime(frame, rcfg)
     reg_state = frame[REGIME_STATE_COL]
     labels = list(OmegaConf.to_container(cfg.regime.labels, resolve=True))
 
@@ -640,7 +650,8 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
             # trading day before the OOS window starts instead of losing that day.
             combined = combined.drop(columns=[REGIME_STATE_COL])
         return _evaluate_profile(cfg, name, combined, model_names, reg_state, labels,
-                                 pred_path, args, persist_predictions=False)
+                                 pred_path, args, persist_predictions=False,
+                                 regime_source=regime_source)
 
     models = build_models(cfg.model, cfg.harness, cfg.approaches, seed=int(cfg.seed),
                           max_epochs=max_epochs)
@@ -670,14 +681,16 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     combined = base.dropna(subset=[mm.name for mm in models]).copy()
 
     return _evaluate_profile(cfg, name, combined, [mm.name for mm in models], reg_state,
-                             labels, pred_path, args, persist_predictions=True)
+                             labels, pred_path, args, persist_predictions=True,
+                             regime_source=regime_source)
 
 
 # --------------------------------------------------------------------------- #
 # Evaluation half of a profile (shared by the training run and --from-predictions)
 # --------------------------------------------------------------------------- #
 def _evaluate_profile(cfg, name, combined, model_names, reg_state, labels, pred_path,
-                      args, *, persist_predictions: bool) -> dict:
+                      args, *, persist_predictions: bool,
+                      regime_source: str = "") -> dict:
     """Score a finished prediction board: tables, tests, figures, milestone context.
 
     Split out of :func:`run_profile` so the ``--from-predictions`` path and the
@@ -771,8 +784,10 @@ def _evaluate_profile(cfg, name, combined, model_names, reg_state, labels, pred_
             "n_oos": int(len(combined)), "fast": bool(args.fast), "pred_path": pred_path,
             "models": list(model_names),
             "regime_shift": int(DEFAULT_REGIME_SHIFT),
-            # Which Phase-4 signal was consumed, so the milestone can name it.
-            "regime_cols": list(cfg.regime.posterior_cols)}
+            # Which Phase-4 signal was consumed, so the milestone can name it --
+            # the *effective* source, which a profile may override (see run_profile).
+            "regime_cols": list(cfg.regime.posterior_cols),
+            "regime_source": str(regime_source or cfg.regime.source)}
 
 
 # --------------------------------------------------------------------------- #
@@ -800,12 +815,13 @@ def main(argv: list[str] | None = None) -> int:
     snapshot_config(cfg, run_dir)
 
     # Milestone filename is config-driven so a robustness variant (e.g. the
-    # Baum-Welch-conditioned run in configs/regime_lstm_hmm.yaml) cannot overwrite
-    # the headline note. Defaults to the headline name.
-    milestone_file = str(cfg.paths.get("milestone_file") or "m05_regime_dl.md")
+    # Baum-Welch-conditioned run in configs/regime_lstm_hmm.yaml, or a Phase-8
+    # asset) cannot overwrite the headline note, and a multi-profile config must
+    # carry a {profile} placeholder rather than silently keeping only the last.
     for profile in cfg.profiles:
         ctx = run_profile(data_cfg, cfg, profile, args)
-        write_milestone(ctx, repo_path(cfg.paths.milestones, milestone_file))
+        write_milestone(ctx, milestone_path(cfg, "m05_regime_dl.md", profile.name,
+                                            n_profiles=len(cfg.profiles)))
     log.info("Phase 5 complete.")
     return 0
 

@@ -1,0 +1,75 @@
+seed: 17
+model:
+  features:
+  - log_rv
+  - oc_log_return
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 0.001
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 150
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+sweep:
+  enabled: false
+  hidden_size:
+  - 128
+  lookback:
+  - 10
+  lr:
+  - 0.001
+robustness:
+  rv_only_lstm: false
+  rv_only_features:
+  - log_rv
+  vix_lstm: false
+  vix_features:
+  - log_rv
+  - oc_log_return
+  - log_vix
+harness:
+  refit_every_folds: 1
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+profiles:
+- name: intraday_2019_2022_refit1
+  headline: false
+  target: oxfordman_rv5
+  description: REFIT SENSITIVITY (not the headline). Identical to the Phase-3 LSTM
+    in every respect except that the network is re-estimated on the expanding window
+    at every walk-forward origin, matching the econometric baselines' monthly cadence.
+    Isolates training-window staleness from architecture; Ch3 sec3.6.
+  baseline_predictions: results/predictions/m02_intraday_2019_2022.parquet
+  splits:
+    train_end: '2015-12-31'
+    val_start: '2016-01-01'
+    val_end: '2018-12-31'
+    test_start: '2019-01-01'
+    test_end: '2022-02-25'
+paths:
+  tables: results/tables
+  figures: results/figures
+  predictions: results/predictions
+  milestones: results/milestones
+  milestone_file: m08_refit_sensitivity.md
+  experiments: experiments
+_snapshot_utc: '2026-09-02T02:35:38+00:00'
+_environment:
+  python: 3.12.1
+  python_build: CPython
+  platform: Windows-11-10.0.26200-SP0
+  machine: AMD64
+  torch: 2.13.0+cpu
+  numpy: 2.4.4
+  pandas: 2.3.3
+  scipy: 1.17.1
+  sklearn: 1.8.0
+  arch: 8.0.0
+  hmmlearn: 0.3.3
+  statsmodels: 0.14.6

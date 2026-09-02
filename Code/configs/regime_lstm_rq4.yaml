@@ -1,0 +1,132 @@
+# Phase 8 / RQ4 -- the best-performing deep model on the robustness assets.
+# Run with:  python -m src.experiments.run_regime_lstm --config regime_lstm_rq4
+#
+# The deep half of the reduced RQ4 design. Ch1 sec1.6 and Ch3 sec3.9 both commit
+# to "the econometric baselines and the best-performing deep model only", and the
+# reduction is what makes RQ4 a check rather than a second study: re-running the
+# full fifteen-model board on two more assets would multiply comparisons without
+# adding evidence about transfer.
+#
+# WHICH DEEP MODEL, AND WHY IT WAS NOT CHOSEN HERE. Regime-LSTM-B, the
+# mixture-of-experts. The "best of Phase 5" rule was fixed before Phase 7 ran and
+# is recorded in configs/combined.yaml and the roadmap: the Phase-5 winner is the
+# architecture whose advantage is both large and carried by a formal test -- the
+# TRANSITIONAL result (per-regime DM p=4.3e-09 against HAR-RV, the state carrying
+# the moment behind the GW chi2(3)=40.1) -- not the one with the best point
+# estimate in any single state. Calm and crisis rest on 379 and 76 days with no
+# significant test behind them and crisis reverses sign between the two regime
+# estimators, so selecting on either would be choosing an architecture on noise.
+# Re-deriving "best" from this phase's own results would be selection on the
+# outcome; the rule is applied, not revisited.
+#
+# WHY THE BASELINE PARQUET IS PHASE 2 AND NOT PHASE 3. On the primary asset this
+# runner merges its models into the Phase-3 board (GARCH/EGARCH/HAR-RV/RW-RV plus
+# the unconditional LSTMs). The reduced design carries no unconditional LSTM on
+# the robustness assets, so each profile points at that asset's Phase-2 parquet
+# instead. The resulting board is the four baselines plus Regime-LSTM-B, which is
+# exactly the reduced design -- and every table this runner writes degrades to
+# whatever models the board actually holds.
+#
+# WHAT THIS COSTS, STATED RATHER THAN HIDDEN. Without an unconditional LSTM on
+# these assets the regime CONTRIBUTION cannot be decomposed here the way RQ2
+# decomposes it on the S&P (86% architecture / 14% regime signal). RQ4 asks
+# whether the S&P conclusions transfer, and the conclusion under test is
+# "the deep model beats HAR-RV conditional on the state" -- which this board can
+# answer. A per-asset RQ2 decomposition would need the unconditional control back
+# and is out of scope for the reduced design; Ch3 sec3.9's paragraph on what the
+# design can and cannot establish is where that limit belongs.
+#
+# HYPERPARAMETERS ARE NOT RE-SWEPT. They stay at the S&P's Phase-3 validation
+# selection (hidden 128, lookback 10, lr 1e-3). Re-searching per asset would
+# confound "the method transfers" with "a fresh search found a better fit here",
+# and the harder, more honest question is whether the S&P-selected configuration
+# survives the move. If it does not, that is a finding about portability.
+
+seed: 17
+
+# --- Regime signal ------------------------------------------------------------
+# `source` is the DEFAULT; each profile overrides it with its own asset's Phase-4
+# parquet (see `regime_source` below). The posterior and state column names are
+# the same in every Phase-4 output, so only the path varies.
+regime:
+  source: "results/predictions/m04_regimes_rq4_rut.parquet"
+  posterior_cols: [jphmm_filt_p0, jphmm_filt_p1, jphmm_filt_p2]
+  state_col: jphmm_filt_state
+  labels: [calm, transitional, crisis]
+
+# --- Comparison scope ---------------------------------------------------------
+# LSTM-VIX never reaches these boards (it is not run on the robustness assets at
+# all, and on .FTSE the registry refuses the column outright), but the exclusion
+# is kept so the comparison rule is identical to the headline's rather than
+# accidentally identical.
+comparison:
+  exclude_models: [LSTM-VIX]
+
+# --- Network + optimisation (fixed at the S&P's Phase-3 selection) ------------
+model:
+  base_features: [log_rv, oc_log_return]
+  regime_features: [reg_p0, reg_p1, reg_p2]
+  lookback: 10
+  hidden_size: 128
+  num_layers: 1
+  dropout: 0.1
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 90
+  patience: 15
+  grad_clip: 1.0
+  val_fraction: 0.15
+  smearing: true
+
+# --- Which architectures to run: the Phase-5 winner ONLY ---------------------
+approaches:
+  feature_full: false     # Regime-LSTM-A        -- not in the reduced design
+  feature_rvonly: false   # Regime-LSTM-A-RVonly -- not in the reduced design
+  experts: true           # Regime-LSTM-B        -- the pre-registered best of Phase 5
+
+# --- Walk-forward harness (identical to Phases 3/5 on the primary asset) -----
+harness:
+  refit_every_folds: 0
+  refit_frequency_days: 21
+  scheme: anchored
+  eval_segment: test
+
+# --- Evaluation profiles: one per robustness asset ---------------------------
+profiles:
+  - name: rq4_rut
+    headline: false
+    asset: RUT
+    target: oxfordman_rv5
+    regime_source: "results/predictions/m04_regimes_rq4_rut.parquet"
+    baseline_predictions: "results/predictions/m02_rq4_rut.parquet"
+    description: "Regime-LSTM-B on the Russell 2000, conditioned on .RUT's OWN jump-penalised filtered posteriors, against .RUT's econometric baselines. Same architecture, hyperparameters, window and tests as the S&P run."
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+  - name: rq4_ftse
+    headline: false
+    asset: FTSE
+    target: oxfordman_rv5
+    regime_source: "results/predictions/m04_regimes_rq4_ftse.parquet"
+    baseline_predictions: "results/predictions/m02_rq4_ftse.parquet"
+    description: "Regime-LSTM-B on the FTSE 100, conditioned on .FTSE's OWN filtered posteriors, against .FTSE's econometric baselines. A different market and session, so the strongest available test of whether the S&P conclusions are about the method."
+    splits:
+      train_end: "2015-12-31"
+      val_start: "2016-01-01"
+      val_end: "2018-12-31"
+      test_start: "2019-01-01"
+      test_end: "2022-02-25"
+
+# --- Output paths ------------------------------------------------------------
+paths:
+  tables: "results/tables"
+  figures: "results/figures"
+  predictions: "results/predictions"
+  milestones: "results/milestones"
+  milestone_file: "m08_regime_dl_{profile}.md"
+  experiments: "experiments"

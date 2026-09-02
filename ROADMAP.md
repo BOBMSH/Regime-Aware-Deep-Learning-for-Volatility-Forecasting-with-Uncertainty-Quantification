@@ -6,7 +6,7 @@
 **Target submission window:** ~12 weeks (≈ early August 2026)
 **Compute:** Local machine with GPU
 **Stack:** Python, PyTorch, pandas, numpy, scikit-learn, statsmodels, `arch`, `hmmlearn`
-**Status:** Phases 0–7 complete — milestones `m01`–`m07` on disk, ~334 unit tests, all phases re-run 2026-08-19 after the report/code alignment work, and the evaluation-side defects found in the three pre-Phase-7 audits closed (see the changelog: (ii) fixed the per-regime bucket **label**, (iii) fixed the transition **selector** and retracted the RQ3 transition headline, (iv) fixed the label **source** so the descriptive and Giacomini–White tables are computed on the same 784 days). **Phase 7 completed 2026-08-23** — both profiles trained at MC=100 (`m07_combined.md`, `m07_combined_hmm.md`) and every published statistic independently re-derived from the parquets in audit (vii). The one remediation that audit found — the committed artefacts spanning two Python interpreters — was **carried out 2026-08-24**: Phases 2–7 were regenerated in a single environment, every phase's run snapshot now reads the same interpreter and library set, and the Phase-5 inheritance guard passes at machine epsilon. Exactly one published number moved (the combined model's), and no conclusion changed; see the 2026-08-24 (viii) entry. **Phase 8 (robustness + writing) is next.** Audit (ix) on 2026-08-30 re-verified every published number against the regenerated artefacts (all reproduce), cleared the Phase-8 blockers, and settled the phase's three open scope decisions — see Phase 8 below and the (ix) changelog entry. Chapter 1's three factual errors about the study's own design were corrected in the .docx; **Chapter 2 was deliberately left untouched**, and the fifteen parked methodology declarations now live in §11 rather than in audit reports.
+**Status:** Phases 0–7 complete — milestones `m01`–`m07` on disk, ~334 unit tests, all phases re-run 2026-08-19 after the report/code alignment work, and the evaluation-side defects found in the three pre-Phase-7 audits closed (see the changelog: (ii) fixed the per-regime bucket **label**, (iii) fixed the transition **selector** and retracted the RQ3 transition headline, (iv) fixed the label **source** so the descriptive and Giacomini–White tables are computed on the same 784 days). **Phase 7 completed 2026-08-23** — both profiles trained at MC=100 (`m07_combined.md`, `m07_combined_hmm.md`) and every published statistic independently re-derived from the parquets in audit (vii). The one remediation that audit found — the committed artefacts spanning two Python interpreters — was **carried out 2026-08-24**: Phases 2–7 were regenerated in a single environment, every phase's run snapshot now reads the same interpreter and library set, and the Phase-5 inheritance guard passes at machine epsilon. Exactly one published number moved (the combined model's), and no conclusion changed; see the 2026-08-24 (viii) entry. **Phase 8's code was built 2026-09-02 (x) and has not been run** — the RQ4 chain, both sensitivities and 42 tests are in place; the fits must be produced in the Windows 3.12 environment. See Phase 8 for the run order. Audit (ix) on 2026-08-30 re-verified every published number against the regenerated artefacts (all reproduce), cleared the Phase-8 blockers, and settled the phase's three open scope decisions — see Phase 8 below and the (ix) changelog entry. Chapter 1's three factual errors about the study's own design were corrected in the .docx; **Chapter 2 was deliberately left untouched**, and the fifteen parked methodology declarations now live in §11 rather than in audit reports.
 
 **The three headline findings, as they now stand:**
 
@@ -186,6 +186,78 @@ Two architectures, run head-to-head:
 - **RV proxy choice** (the Yang-Zhang diagnostic, already built).
 
 **Already delivered by (ix), no run required beyond a `--from-predictions` rebuild:** the quantile model's point forecast is now also reported retransformed onto the mean scale (`Quantile-LSTM-mean`, QLIKE **0.2742** against 0.3216 for the median point). Every other deep model in the study is retransformed before scoring — the Phase-3 LSTM by `exp(log_rv + smear_var/2)`, MC-Dropout by the log-normal mean of its predictive law — and the pinball head was the only one that was not, so it was being ranked on an estimand it was never trained to produce. The row is **unranked** in the master table: it is the same forecast under a different retransformation, not a rival, and ranking it would have shifted every published rank below it.
+
+**BUILT 2026-09-02 (x) — the phase is code-complete and nothing has been run.** The
+chain below exists, imports, and is covered by 42 new tests; no artefact has been
+produced, because the deep model has to be fitted in the Windows 3.12 environment
+where the Phase-9 gate will re-run it. What was added:
+
+- **The asset registry finally has a consumer.** `resolve_asset` and
+  `build_econometric_frame(asset=)` were added on 2026-08-30 and **no runner
+  passed either**, so a Phase-8 profile naming `RUT` would have been run on
+  `.SPX` and printed a plausible table. All six runners now build their frame
+  through `datasets.frame_for_profile(data_cfg, profile)`, which reads the
+  profile's optional `asset` key; every pre-Phase-8 config omits it and is
+  therefore unchanged. `run_econometric` also stopped titling every chart
+  "S&P 500" unconditionally.
+- **`configs/{econometric,hmm,regime_lstm}_rq4.yaml`** — two profiles each
+  (`rq4_rut`, `rq4_ftse`). The regime config copies the headline's pre-registered
+  jump-penalty grid, sensitivity grid, K grid, persistence floor and emission
+  feature verbatim, and `tests/test_rq4.py` asserts the copy is exact, so
+  widening a grid to make an asset behave breaks the suite.
+- **`src/experiments/run_rq4.py`** — the cross-asset assembler. Reads the finished
+  per-asset artefacts, computes DM + regime-conditional GW of `Regime-LSTM-B`
+  against each baseline, and writes `m08_rq4_{metrics,ranks,tests,per_regime,
+  regimes,sample,verdict,rank_matrix}.csv` plus `m08_rq4.md`. **The S&P reference
+  is read from the committed Phase-5 artefacts at run time, never hardcoded.**
+  The verdict comes from one tested function, `transfer_verdict`, whose branches
+  are exhaustive and whose `indeterminate` case is real.
+- **The multi-profile milestone trap, closed.** Every runner writes its milestone
+  *inside* the profile loop, so a two-profile config would have written one note
+  and kept only the last — invisible until Phase 8, the first config with two.
+  `src.utils.config.milestone_path` now formats a `{profile}` placeholder and
+  **raises** when a multi-profile config lacks one.
+- **`configs/lstm_baseline_refit.yaml`** — the `refit_every_folds: 1` sensitivity
+  Ch3 §3.6 promises Chapter 4 will report. Sweep off, hyperparameters pinned at
+  the Phase-3 selection, so the contrast isolates the cadence.
+- **`configs/econometric_loghar.yaml`** — log-HAR through the harness at last, so
+  the "the LSTM only wins because it models logs" objection is answered by a
+  regenerable artefact rather than a one-off check.
+- **`tests/test_rq4.py`** — 42 tests: every verdict branch, rank agreement,
+  `milestone_path`, the pre-registered-grid assertions, the asset threading, and
+  an end-to-end pass over synthetic Phase-8 artefacts in a tmp tree.
+
+**Read-only dry check of the data path (2026-09-02, no artefacts written).** Both
+robustness frames build cleanly and their samples differ, which is the thing
+Ch3 §3.9 commits to reporting rather than absorbing:
+
+| asset | rows | target rows | lost to the calendar join | test days | VIX |
+|---|---|---|---|---|---|
+| `.SPX` | — | 5552 | — | 784 | joined |
+| `.RUT` | 5528 | 5550 | 0 (0.00%) | 788 | joined |
+| `.FTSE` | 5562 | 5586 | 2 (0.04%) | 795 | **refused, with the reason logged** |
+
+`rv` is strictly positive on every test window, as Ch3 §3.2 requires. The FTSE
+frame carries no `vix_close` column at all — the registry refuses it in the data
+path rather than leaving it to be noticed in a results table.
+
+**RUN ORDER (Windows, from `Code\`).** Regimes before the deep run, because
+Phase 5 consumes Phase 4's parquet; `run_rq4` last, because it only reads.
+
+```
+.\.venv\Scripts\python.exe -m pytest tests -q
+.\.venv\Scripts\python.exe -m src.experiments.run_econometric --config econometric_rq4
+.\.venv\Scripts\python.exe -m src.experiments.run_regimes     --config hmm_rq4
+.\.venv\Scripts\python.exe -m src.experiments.run_regime_lstm --config regime_lstm_rq4
+.\.venv\Scripts\python.exe -m src.experiments.run_rq4
+```
+
+Then the two sensitivities, independent of RQ4 and of each other:
+
+```
+.\.venv\Scripts\python.exe -m src.experiments.run_econometric --config econometric_loghar
+.\.venv\Scripts\python.exe -m src.experiments.run_lstm --config lstm_baseline_refit
+```
 
 - **Gate:** Full dissertation draft v0.9 (everything except Conclusion + Abstract)
 
@@ -565,6 +637,71 @@ would look like an oversight if a reader met it undeclared.
 ---
 
 ## Changelog
+
+### 2026-09-02 (x.1) — the first RQ4 run: `.RUT` clean, `.FTSE` crashed, and the third layer of the same defect
+
+**`run_regimes` read `frame["vix_close"]` unconditionally.** The `.RUT` profile
+completed; `.FTSE` died with a `KeyError` at the first line that touches the
+frame, because `assets.registry.FTSE.vix_feature: false` correctly refuses the
+column. Third instance in three days of one shape: **the data layer was right
+and its consumer had not been told.** (i) the registry had no consumer; (ii) the
+runners did not pass `asset=`; (iii) a runner assumed a column the registry
+deliberately withholds.
+
+The fix is not a guard. `vix_confusion` is generalised to
+`state_concordance(state, series, K, key=)`, and an asset with no VIX is
+validated against **its own realised variance** — which is still external to the
+*estimator*, since the regime model is fitted on standardised daily log returns
+and never sees `rv`. The two are different diagnostics, so nothing lets them be
+compared as one number: `_vix_confusion.csv` vs `_rv_concordance.csv`,
+`_vix_by_state.png` vs `_rv_by_state.png`, `spearman_state_vix` vs
+`spearman_state_rv`, and a `validator` column on the agreement table. The VIX
+branch is byte-identical — verified by recomputing the committed
+`m04_regimes_rq4_rut_vix_confusion.csv` from its own parquet: the confusion table
+matches exactly and both scalars reproduce to 16 digits.
+
+**Two hardcoded literals found in the same pass**, both of the "verify by
+running" family: the two regime-map figure titles said "S&P 500 realized
+volatility" unconditionally, and the milestone's Scope paragraph said "on S&P 500
+daily data" — so the `.RUT` note and charts on disk name the wrong index. The
+milestone also *asserted* "Mean VIX rises monotonically with the regime index",
+which held on `.SPX` and is exactly the claim a generator should not make before
+looking; it is now computed, with a written branch for the non-monotone case.
+
+**Consequence: re-run the whole `hmm_rq4` config, not just `.FTSE`.** `.RUT`'s
+numbers are deterministic and will not move (seed 17, VIX path unchanged), but
+its milestone and figures were produced by the code with the literals in them.
+Suite **394**.
+
+### 2026-09-02 (x) — Phase 8 built: RQ4 wired end to end, two latent traps closed
+
+**The phase is code-complete and unrun.** Full detail in the Phase 8 section
+above; the two findings worth carrying separately are both of the family this
+project keeps producing — a declaration with no consumer.
+
+**The asset registry had no consumer in the experiment layer.** `resolve_asset`
+and `build_econometric_frame(asset=)` landed on 2026-08-30 with tests, and (ix)
+recorded the phase as "startable except for the data pull". It was not: **not one
+runner passed the asset**, all six calling `build_econometric_frame(data_cfg,
+target=profile.target)`. A `rq4_rut` profile would have regressed Russell 2000
+returns on S&P 500 realised variance — the exact defect the registry was built to
+prevent, surviving *inside* the fix for it because the fix stopped at the data
+layer. All six now go through `frame_for_profile`, and a test asserts the
+profile's asset reaches `build_econometric_frame`. Related: `run_econometric`
+titled every forecast chart "S&P 500" from a literal.
+
+**Every runner would have silently discarded a milestone.** Each writes its note
+inside the profile loop to a single filename, so a config with two profiles keeps
+only the last. Harmless for eight months because every config had one profile;
+Phase 8 is the first with two. `milestone_path` now raises rather than
+overwrites.
+
+Also: `join_attrition` had been recorded in `frame.attrs` since (ix) and read by
+nothing, though Ch3 §3.9 commits to reporting it — `run_econometric` now writes
+`m02_<profile>_sample.csv` per profile and `run_rq4` collates it.
+
+Suite **389 passing** on the bridge (the four torch-dependent modules excluded
+there, unchanged by this work).
 
 ### 2026-08-30 (ix) — audit, then the fixes: Phase-8 blockers cleared, Ch1 corrected, a scoring inconsistency closed
 

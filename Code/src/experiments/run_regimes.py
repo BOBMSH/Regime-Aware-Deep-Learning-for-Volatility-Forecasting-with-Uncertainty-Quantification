@@ -27,8 +27,12 @@ Outputs
 * ``results/predictions/m04_regimes_<profile>.parquet`` — date-indexed regime
   states + posteriors (smoothed descriptive + causal filtered), VIX and RV. The
   Phase-5 conditioning input.
-* ``results/tables/m04_regimes_<profile>_{bic,persistence,vix_confusion,jump_lambda,agreement}.csv``.
-* ``results/figures/m04/<profile>_{regime_map_hmm,regime_map_jump,bic,transition,vix_by_state,smoothed_vs_filtered}.png``.
+* ``results/tables/m04_regimes_<profile>_{bic,persistence,jump_lambda,agreement}.csv``
+  plus the external-validation cross-tab, named for the validator actually used:
+  ``_vix_confusion.csv`` where the asset's options trade on this market, and
+  ``_rv_concordance.csv`` where they do not (see :func:`state_concordance`).
+* ``results/figures/m04/<profile>_{regime_map_hmm,regime_map_jump,bic,transition,smoothed_vs_filtered}.png``
+  plus ``_vix_by_state.png`` / ``_rv_by_state.png`` on the same rule.
 * ``results/milestones/m04_regimes.md`` — the milestone note.
 * ``experiments/04_regimes/run_<utc>/config.yaml`` — reproducibility.
 
@@ -49,7 +53,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf
 
-from src.data.datasets import build_econometric_frame
+from src.data.datasets import frame_for_profile
 from src.models.regime.features import (
     RegimeFeatureSpec,
     TrainStandardizer,
@@ -59,7 +63,8 @@ from src.models.regime.features import (
 from src.models.regime.hmm import GaussianHMMRegime
 from src.models.regime.jump import JumpModel, select_jump_penalty
 from src.models.regime.jump_hmm import JumpPenalisedHMM, select_jump_penalty_causal
-from src.utils.config import load_config, repo_path, snapshot_config
+from src.utils.config import (load_config, milestone_path, repo_path,
+                              snapshot_config)
 from src.utils.io import ensure_dir, to_parquet
 from src.utils.logging import get_logger
 from src.utils.seeding import set_seed
@@ -117,40 +122,79 @@ def persistence_table(hmm: GaussianHMMRegime, path: np.ndarray, K: int) -> pd.Da
     })
 
 
-def vix_confusion(state: np.ndarray, vix: pd.Series, K: int) -> tuple[pd.DataFrame, dict]:
-    """Cross-tabulate decoded state against K VIX quantile bins + concordance.
+def state_concordance(state: np.ndarray, series: pd.Series, K: int, *,
+                      key: str = "vix_close") -> tuple[pd.DataFrame, dict]:
+    """Cross-tabulate decoded state against K quantile bins of an external series.
 
-    A meaningful regime map concentrates mass on the diagonal (calm state on
-    low-VIX days, crisis state on high-VIX days). We report the row-normalised
-    confusion, the mean VIX per state (should increase with the state index by
-    construction of the volatility ordering) and two scalar concordances: the
-    Spearman rank correlation between state index and VIX, and the fraction of
-    days whose state bin equals their VIX quantile bin.
+    A meaningful regime map concentrates mass on the diagonal: the calm state on
+    the series' low days, the crisis state on its high days. We report the
+    row-normalised confusion, the series mean per state (which should increase
+    with the state index, by construction of the volatility ordering) and two
+    scalar concordances -- the Spearman rank correlation between state index and
+    series, and the fraction of days whose state bin equals their quantile bin.
+
+    ``key`` names the validating series and decides how the result is labelled.
+    Two are used:
+
+    * ``vix_close`` -- the canonical check. The regime model never sees the VIX,
+      so agreement is genuine external validation against market-implied
+      volatility.
+    * ``rv`` -- the fallback for an asset whose options trade on another market,
+      where ``assets.registry.<key>.vix_feature`` is false and the frame
+      therefore carries no VIX at all (the FTSE 100). It is still external to the
+      *estimator*: the regime model is fitted on standardised daily log returns
+      only and never sees realised variance, so concordance with it is a real
+      check that the inferred states track independently measured volatility.
+      It is a **different** diagnostic from the VIX one and is named differently
+      everywhere it is written, so the two can never be compared as though they
+      were the same number.
+
+    The VIX path is bit-identical to the pre-2026-09-02 ``vix_confusion``.
     """
-    v = vix.to_numpy()
-    # K quantile bins of VIX, 0 = lowest.
+    v = series.to_numpy()
+    prefix = "vix" if key == "vix_close" else key
+    # K quantile bins of the series, 0 = lowest.
     ranks = v.argsort().argsort()
-    vix_bin = np.minimum((ranks * K) // len(v), K - 1)
+    series_bin = np.minimum((ranks * K) // len(v), K - 1)
     conf = np.zeros((K, K), dtype=int)
-    for s, b in zip(state, vix_bin):
+    for s, b in zip(state, series_bin):
         conf[s, b] += 1
     conf_df = pd.DataFrame(
         conf, index=[f"state{ i }" for i in range(K)],
-        columns=[f"vixQ{ j }" for j in range(K)],
+        columns=[f"{prefix}Q{ j }" for j in range(K)],
     )
     row_sum = conf.sum(axis=1, keepdims=True)
     conf_norm = pd.DataFrame(
         np.divide(conf, row_sum, out=np.zeros_like(conf, float), where=row_sum > 0).round(3),
         index=conf_df.index, columns=conf_df.columns,
     )
-    mean_vix = pd.Series([v[state == k].mean() if (state == k).any() else np.nan
-                          for k in range(K)], index=[f"state{ i }" for i in range(K)])
+    mean_by_state = pd.Series([v[state == k].mean() if (state == k).any() else np.nan
+                               for k in range(K)],
+                              index=[f"state{ i }" for i in range(K)])
     from scipy.stats import spearmanr
     rho = float(spearmanr(state, v).statistic)
-    diag_concordance = float((vix_bin == state).mean())
-    summary = {"spearman_state_vix": rho, "diag_concordance": diag_concordance,
-               "mean_vix_by_state": mean_vix.round(2).to_dict()}
-    return conf_df, {"norm": conf_norm, "mean_vix": mean_vix, **summary}
+    diag_concordance = float((series_bin == state).mean())
+    # Scalar keys carry the validator's name so a value from one diagnostic can
+    # never be read as the other; `validator` is always present. The VIX names
+    # are unchanged, so a regenerated `.SPX` agreement table keeps its columns.
+    summary = {
+        "validator": key,
+        f"spearman_state_{prefix}": rho,
+        "diag_concordance": diag_concordance,
+        f"mean_{prefix}_by_state": mean_by_state.round(4).to_dict(),
+    }
+    # `_spearman` is a private convenience alias for the milestone, which should
+    # not have to know the validator's name to print one number. Keys starting
+    # with an underscore are excluded from the agreement CSV, so the persisted
+    # table carries only the *named* correlation and cannot show the same value
+    # twice under two names.
+    return conf_df, {"norm": conf_norm, "mean_by_state": mean_by_state,
+                     "_spearman": rho, **summary}
+
+
+def vix_confusion(state: np.ndarray, vix: pd.Series, K: int) -> tuple[pd.DataFrame, dict]:
+    """Backwards-compatible alias for the VIX case of :func:`state_concordance`."""
+    return state_concordance(state, vix, K, key="vix_close")
 
 
 def agreement(hmm_path: np.ndarray, jump_path: np.ndarray) -> dict:
@@ -282,7 +326,14 @@ def plot_transition(transmat, K, path):
     return save_fig(fig, path)
 
 
-def plot_vix_by_state(state, vix, K, path):
+def plot_validator_by_state(state, series, K, path, *, ylabel: str, log_y: bool = False):
+    """Boxplot of the validating series within each decoded state.
+
+    ``ylabel`` names the series, so the figure cannot imply the VIX on an asset
+    validated against its own realised variance. ``log_y`` is for realised
+    variance, whose distribution is right-skewed enough that a linear axis hides
+    the separation the plot exists to show.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -291,15 +342,17 @@ def plot_vix_by_state(state, vix, K, path):
     set_style()
     labels = STATE_LABELS.get(K, [str(i) for i in range(K)])
     fig, ax = plt.subplots(figsize=(6.2, 4.0))
-    data = [vix.to_numpy()[state == k] for k in range(K)]
+    data = [series.to_numpy()[state == k] for k in range(K)]
     bp = ax.boxplot(data, patch_artist=True, showfliers=False,
                     medianprops=dict(color="black"))
     for patch, k in zip(bp["boxes"], range(K)):
         patch.set_facecolor(STATE_COLORS[k % len(STATE_COLORS)])
         patch.set_alpha(0.6)
     ax.set_xticklabels([f"{k}\n{labels[k]}" for k in range(K)])
-    ax.set_ylabel("VIX (close)")
-    ax.set_title("External validation: VIX distribution by decoded regime")
+    ax.set_ylabel(ylabel)
+    if log_y:
+        ax.set_yscale("log")
+    ax.set_title(f"External validation: {ylabel} by decoded regime")
     return save_fig(fig, path)
 
 
@@ -342,13 +395,35 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         cfg.models.hmm.n_init = 4
         cfg.models.jump.n_init = 4
 
-    frame = build_econometric_frame(data_cfg, target=profile.target, include_vix=True)
-    vix = frame["vix_close"]
+    frame = frame_for_profile(data_cfg, profile, include_vix=True)
+    asset_label = str(frame.attrs.get("asset", "")) or "primary asset"
+
+    # External validation series. The VIX is the canonical check, but it prices
+    # S&P 500 options, so `assets.registry.<key>.vix_feature` refuses it for an
+    # asset trading on another market and the frame then carries no `vix_close`
+    # at all -- which is correct, and used to be a KeyError here. The fallback is
+    # the asset's OWN realised variance: the regime model is fitted on
+    # standardised daily log returns and never sees it, so concordance with it is
+    # still external to the estimator. It is a different diagnostic and is
+    # labelled differently in every artefact.
+    if "vix_close" in frame.columns:
+        validator_key, validator_label = "vix_close", "VIX (close)"
+    else:
+        validator_key, validator_label = "rv", f"{asset_label} realised variance"
+        log.info(
+            "no VIX column for asset %s -- the registry refuses it for this "
+            "market. Validating the regime map against the asset's own realised "
+            "variance instead, which the estimator never sees. This is a "
+            "DIFFERENT diagnostic from the VIX concordance and is written to "
+            "m04_regimes_%s_rv_concordance.csv, not the vix_confusion table.",
+            asset_label, name,
+        )
+    validator = frame[validator_key]
 
     # --- features (pre-registered: standardised daily log returns) ---
     prim = RegimeFeatureSpec.from_set(cfg.features.primary, standardize=bool(cfg.features.standardize))
     feats = build_regime_features(frame, prim)
-    frame = frame.loc[feats.index]; vix = vix.loc[feats.index]  # align to feature coverage
+    frame = frame.loc[feats.index]; validator = validator.loc[feats.index]  # align to features
     Xz = standardize_full_sample(feats).to_numpy() if prim.standardize else feats.to_numpy()
     log.info("regime features %s: %d obs %s -> %s", list(feats.columns), len(feats),
              feats.index.min().date(), feats.index.max().date())
@@ -384,10 +459,10 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
 
     # --- 3. Persistence + VIX validation + agreement ---
     pers_tbl = persistence_table(hmm, hmm_path, K)
-    conf_df, conf_extra = vix_confusion(hmm_path, vix, K)
+    conf_df, conf_extra = state_concordance(hmm_path, validator, K, key=validator_key)
     agree = agreement(hmm_path, jump_path)
-    log.info("VIX concordance: spearman=%.3f diag=%.3f | HMM/jump agreement raw=%.3f ARI=%.3f",
-             conf_extra["spearman_state_vix"], conf_extra["diag_concordance"],
+    log.info("%s concordance: spearman=%.3f diag=%.3f | HMM/jump agreement raw=%.3f ARI=%.3f",
+             validator_label, conf_extra["_spearman"], conf_extra["diag_concordance"],
              agree["raw_agreement"], agree["adjusted_rand"])
 
     # --- 4. Causal (leakage-free) demonstration: fit on train, filter over all ---
@@ -486,7 +561,11 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     out = pd.DataFrame(index=feats.index)
     out.index.name = "date"
     out["rv"] = frame["rv"].to_numpy()
-    out["vix_close"] = vix.to_numpy()
+    if validator_key == "vix_close":
+        # Only where the asset actually has one. Writing the validator under a
+        # `vix_close` name on an asset validated against its own RV would put two
+        # different quantities in one column across profiles.
+        out["vix_close"] = validator.to_numpy()
     out["hmm_state"] = hmm_path
     for k in range(K):
         out[f"hmm_p{k}"] = p_smooth[:, k]
@@ -510,11 +589,14 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     ensure_dir(repo_path(paths.tables))
     bic_tbl.to_csv(repo_path(paths.tables, f"m04_regimes_{name}_bic.csv"), index=False)
     pers_tbl.to_csv(repo_path(paths.tables, f"m04_regimes_{name}_persistence.csv"), index=False)
-    conf_df.to_csv(repo_path(paths.tables, f"m04_regimes_{name}_vix_confusion.csv"))
+    conf_name = ("vix_confusion" if validator_key == "vix_close"
+                 else f"{validator_key}_concordance")
+    conf_df.to_csv(repo_path(paths.tables, f"m04_regimes_{name}_{conf_name}.csv"))
     lam_tbl.to_csv(repo_path(paths.tables, f"m04_regimes_{name}_jump_lambda.csv"), index=False)
     pd.DataFrame([{**agree, "hmm_bic_k": hmm_bic_k, "jump_bic_k": jump_bic_k,
                    "headline_k": K, "lambda": lam,
-                   **{k: v for k, v in conf_extra.items() if np.isscalar(v)}}]
+                   **{k: v for k, v in conf_extra.items()
+                      if np.isscalar(v) and not k.startswith("_")}}]
                  ).to_csv(repo_path(paths.tables, f"m04_regimes_{name}_agreement.csv"), index=False)
 
     # Causal-signal comparison: the two leakage-free posteriors Phase 5/6 can
@@ -534,15 +616,22 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
 
     # --- 6. Figures ---
     figdir = repo_path(paths.figures, "m04"); ensure_dir(figdir)
+    # The asset comes off the frame, never a literal: these titles read
+    # "S&P 500" unconditionally until 2026-09-02, so a Phase-8 chart would have
+    # named the wrong index with nothing to catch it.
     plot_regime_map(feats.index, frame["rv"].to_numpy(), hmm_path, K,
-                    f"S&P 500 realized volatility by HMM regime (K={K}) — {name}",
+                    f"{asset_label} realized volatility by HMM regime (K={K}) — {name}",
                     figdir / f"{name}_regime_map_hmm.png")
     plot_regime_map(feats.index, frame["rv"].to_numpy(), jump_path, K,
-                    f"S&P 500 realized volatility by jump-model regime (K={K}, λ={lam:.4g}) — {name}",
+                    f"{asset_label} realized volatility by jump-model regime "
+                    f"(K={K}, λ={lam:.4g}) — {name}",
                     figdir / f"{name}_regime_map_jump.png")
     plot_bic(bic_tbl, figdir / f"{name}_bic.png")
     plot_transition(hmm.transmat_, K, figdir / f"{name}_transition.png")
-    plot_vix_by_state(hmm_path, vix, K, figdir / f"{name}_vix_by_state.png")
+    val_fig = ("vix_by_state" if validator_key == "vix_close"
+               else f"{validator_key}_by_state")
+    plot_validator_by_state(hmm_path, validator, K, figdir / f"{name}_{val_fig}.png",
+                            ylabel=validator_label, log_y=(validator_key == "rv"))
     if causal is not None:
         tm = causal["test_mask"]; cr = causal["crisis"]
         plot_smoothed_vs_filtered(feats.index[tm], causal["p_smooth_all"][tm, cr],
@@ -565,6 +654,9 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
         "n_obs": len(feats),
         "feat_cols": list(feats.columns), "span": (feats.index.min(), feats.index.max()),
         "pred_path": pred_path, "fast": bool(args.fast),
+        "asset": asset_label, "validator_key": validator_key,
+        "validator_label": validator_label, "conf_name": conf_name,
+        "validator_fig": val_fig,
     }
 
 
@@ -586,8 +678,8 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
         p.append("> ⚠️ **FAST pass** — reduced restarts. Re-run at full config before citing.\n")
 
     p.append("## Scope\n")
-    p.append("Roadmap Phase 4 (Ch2 §2.4): detect latent **volatility regimes** on S&P 500 "
-             "daily data with the two pre-registered estimators — a Gaussian-emission **HMM** "
+    p.append(f"Roadmap Phase 4 (Ch2 §2.4): detect latent **volatility regimes** on "
+             f"**{ctx.get('asset', 'S&P 500')}** daily data with the two pre-registered estimators — a Gaussian-emission **HMM** "
              "(Baum–Welch; Hamilton 1989) and the **Nystrup, Lindström & Madsen (2020) jump "
              "model** — both on *standardised daily log returns*. Regimes are the discrete "
              "state the Phase-5 LSTM conditions on; this phase characterises and validates "
@@ -636,17 +728,49 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
              "because only the second is leakage-free. Full λ sensitivity is in "
              f"`results/tables/m04_regimes_{name}_jump_lambda.csv`.\n")
 
-    p.append("## External validation — VIX by regime\n")
-    mv = conf["mean_vix"]
-    p.append("Mean VIX rises monotonically with the (volatility-ordered) regime index — "
-             "the unsupervised states line up with market-implied volatility without ever "
-             "seeing it:\n")
+    vlabel = ctx.get("validator_label", "VIX (close)")
+    is_vix = ctx.get("validator_key", "vix_close") == "vix_close"
+    mv = conf["mean_by_state"]
+
+    p.append(f"## External validation — {vlabel} by regime\n")
+    if not is_vix:
+        p.append(
+            "This asset's options trade on another market, so the CBOE VIX is not a "
+            "valid validator for it and `assets.registry` refuses the column outright "
+            "(joining it would also intersect two trading calendars and shrink the "
+            "sample silently). The regime map is instead checked against the asset's "
+            "**own realised variance**, which the estimator never sees: it is fitted on "
+            "standardised daily log returns alone. This is a different diagnostic from "
+            "the VIX concordance reported for the US assets and its numbers are not "
+            "comparable with them.\n"
+        )
+    # The monotonicity claim is TESTED, not asserted. It held on `.SPX`, where this
+    # sentence was hardcoded; on a new asset it is exactly the kind of statement a
+    # generator has no business making before looking. (Sixth of this family.)
+    vals = mv.to_numpy(dtype=float)
+    finite = np.isfinite(vals)
+    monotone = bool(finite.all() and np.all(np.diff(vals) > 0))
+    fmt = "{:.1f}" if is_vix else "{:.3e}"
+    if monotone:
+        p.append(f"Mean {vlabel} rises monotonically with the (volatility-ordered) regime "
+                 "index — the unsupervised states line up with independently measured "
+                 "volatility without ever seeing it:\n")
+    else:
+        p.append(f"Mean {vlabel} does **not** rise monotonically with the "
+                 "(volatility-ordered) regime index. The states are ordered by their own "
+                 "fitted volatility, so a non-monotone validator means the ordering the "
+                 "estimator found and the ordering the validator implies disagree "
+                 "somewhere — read the per-state means below before conditioning "
+                 "anything on this map:\n")
     p.append("| state | " + " | ".join(f"{labels[k]}" for k in range(K)) + " |")
     p.append("|---|" + "---|" * K)
-    p.append("| mean VIX | " + " | ".join(f"{mv.iloc[k]:.1f}" for k in range(K)) + " |")
-    p.append(f"\nRank concordance (Spearman) between state and VIX = **{conf['spearman_state_vix']:.3f}**; "
-             f"state/VIX-quantile diagonal concordance = **{conf['diag_concordance']:.3f}**.\n")
-    p.append(f"\n![VIX by state](../figures/m04/{name}_vix_by_state.png)\n")
+    p.append(f"| mean {vlabel} | "
+             + " | ".join(("n/a" if not np.isfinite(vals[k]) else fmt.format(vals[k]))
+                          for k in range(K)) + " |")
+    p.append(f"\nRank concordance (Spearman) between state and {vlabel} = "
+             f"**{conf['_spearman']:.3f}**; state/quantile diagonal concordance = "
+             f"**{conf['diag_concordance']:.3f}**.\n")
+    p.append(f"\n![{vlabel} by state](../figures/m04/{name}_{ctx.get('validator_fig', 'vix_by_state')}.png)\n")
 
     p.append("## Estimator robustness — HMM vs jump model\n")
     p.append(f"The two estimators agree on **{agree['raw_agreement']*100:.1f}%** of days "
@@ -787,9 +911,12 @@ def write_milestone(ctx: dict, out_path: Path) -> Path:
     p.append(f"- **Predictions (Phase-5 input):** `results/predictions/m04_regimes_{name}.parquet` — "
              "per-day `hmm_state`, `hmm_p*` (smoothed), `jump_state`, `jump_p*`, the **headline** "
              "causal `jphmm_filt_state`/`jphmm_filt_p*` (jump-penalised HMM) and the comparator "
-             "causal `hmm_filt_state`/`hmm_filt_p*` (Baum–Welch), with `rv` and `vix_close`.\n")
-    p.append(f"- **Tables:** `results/tables/m04_regimes_{name}_{{bic,persistence,vix_confusion,"
-             "jump_lambda,jump_lambda_train,agreement,causal_signals}}.csv`.\n")
+             "causal `hmm_filt_state`/`hmm_filt_p*` (Baum–Welch), with `rv`"
+             + (" and `vix_close`.\n" if is_vix else
+                " (no `vix_close`: the registry refuses it for this market).\n"))
+    p.append(f"- **Tables:** `results/tables/m04_regimes_{name}_{{bic,persistence,"
+             f"{ctx.get('conf_name', 'vix_confusion')},jump_lambda,jump_lambda_train,"
+             "agreement,causal_signals}}.csv`.\n")
 
     p.append("## Gate criteria\n")
     p.append("- [x] Gaussian-emission HMM on standardised daily log returns (Baum–Welch, restarts).\n")
@@ -831,7 +958,8 @@ def main(argv: list[str] | None = None) -> int:
 
     for profile in cfg.profiles:
         ctx = run_profile(data_cfg, cfg, profile, args)
-        write_milestone(ctx, repo_path(cfg.paths.milestones, "m04_regimes.md"))
+        write_milestone(ctx, milestone_path(cfg, "m04_regimes.md", profile.name,
+                                            n_profiles=len(cfg.profiles)))
     log.info("Phase 4 complete.")
     return 0
 
