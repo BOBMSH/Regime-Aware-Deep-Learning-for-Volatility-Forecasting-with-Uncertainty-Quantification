@@ -45,8 +45,8 @@ pre-registration is worth anything. Two guards make that real:
 Outputs (the Phase 7 gate artifacts)
 ------------------------------------
 * ``results/predictions/m07_combined_<profile>.parquet``
-* ``results/tables/m07_combined_<profile>_{master,point,calibration,per_regime,
-  dm,gw,sigma_scale,coverage_tests,coverage_conditional}.csv``
+* ``results/tables/m07_combined_<profile>_{master,calibration,crps,per_regime,
+  dm,gw,sigma_scale,width_by_regime,coverage_tests,coverage_conditional}.csv``
 * ``results/figures/m07/<profile>_{calibration,width_by_regime}.png``
 * ``results/milestones/m07_combined.md``
 * ``experiments/07_combined/run_<utc>/config.yaml``
@@ -74,10 +74,16 @@ from src.data.datasets import frame_for_profile
 from src.data.splits import SplitConfig
 from src.evaluation.calibration import (
     lognormal_interval,
+    lognormal_quantile,
     per_regime_interval_metrics,
 )
 from src.evaluation.coverage_tests import expected_rate, interval_hits
-from src.evaluation.metrics import crps_lognormal, point_metrics, qlike
+from src.evaluation.metrics import (
+    crps_from_quantiles,
+    crps_lognormal,
+    point_metrics,
+    qlike,
+)
 from src.evaluation.regime_timing import (
     DEFAULT_REGIME_SHIFT,
     DEFAULT_SELECTOR_SHIFT,
@@ -328,8 +334,8 @@ def lognormal_law(frame: pd.DataFrame, method: str):
     return None
 
 
-def assert_crps_distinct(table: pd.DataFrame) -> None:
-    """Refuse a master table in which two models share a bit-identical CRPS.
+def assert_crps_distinct(table: pd.DataFrame, model_col: str = "model") -> None:
+    """Refuse a table in which two models share a bit-identical CRPS.
 
     The 2026-09-01 defect was invisible in review precisely because a wrong
     number looks like a number. Two distinct predictive laws agreeing to all 17
@@ -339,14 +345,102 @@ def assert_crps_distinct(table: pd.DataFrame) -> None:
     """
     if "crps" not in table.columns:
         return
-    sub = table.loc[table["crps"].notna(), ["model", "crps"]]
+    sub = table.loc[table["crps"].notna(), [model_col, "crps"]]
     dup = sub[sub.duplicated("crps", keep=False)]
     if not dup.empty:
-        rows = ", ".join(f"{m}={c!r}" for m, c in zip(dup["model"], dup["crps"]))
+        rows = ", ".join(f"{m}={c!r}" for m, c in zip(dup[model_col], dup["crps"]))
         raise ValueError(
             "two models report an identical CRPS, which means one method's "
             f"predictive law was used for another's row: {rows}"
         )
+
+
+def quantile_grid(uqp: pd.DataFrame) -> dict:
+    """The quantile head's own tau grid, recovered from what Phase 6 persisted.
+
+    Phase 7 trains no quantile head, so the grid is not in its config -- and a
+    config key nothing writes is precisely the declaration that drifts (the
+    ``robustness: [AAPL, TSLA]`` block outlived the RQ4 decision by a week for
+    exactly this reason). It is read off the persisted column names instead.
+    :func:`~src.experiments.run_uq.crps_table` tags the band
+    ``int(round((tau_hi - tau_lo) * 100))``, and a central band of that width is
+    ``[(1 - w) / 2, (1 + w) / 2]`` by the convention
+    :mod:`src.evaluation.calibration` states, so ``Quantile-LSTM_lo90``
+    recovers tau = 0.05 / 0.95. That width stays in integer percent until the
+    final division: through a float width ``(1 - 90 / 100) / 2`` is
+    ``0.04999999999999999``, one ulp short of the literal the head was trained
+    on and so a key no caller can look up, while ``(100 - 90) / 2 / 100`` is
+    0.05 exactly -- and likewise for every band width in use. The median is
+    included when the head was trained with one, which is what makes the grid
+    three-point rather than two.
+    """
+    tags = sorted({c.rsplit("_lo", 1)[-1] for c in uqp.columns
+                   if c.startswith(f"{Q_NAME}_lo")
+                   and f"{Q_NAME}_hi{c.rsplit('_lo', 1)[-1]}" in uqp.columns})
+    if len(tags) != 1:
+        raise ValueError(
+            f"expected exactly one persisted {Q_NAME} band, found tags {tags}")
+    tag = tags[0]
+    pct = int(tag)
+    grid = {((100 - pct) / 2) / 100.0: uqp[f"{Q_NAME}_lo{tag}"],
+            ((100 + pct) / 2) / 100.0: uqp[f"{Q_NAME}_hi{tag}"]}
+    if Q_NAME in uqp.columns:
+        grid[0.5] = uqp[Q_NAME]
+    return grid
+
+
+def crps_table(preds: pd.DataFrame, uqp: pd.DataFrame) -> pd.DataFrame:
+    """CRPS for every interval-bearing method in Phase 7, on both estimators.
+
+    Section 3.7 commits to scoring every method a second time on the quantile
+    head's own grid and comparing *those* figures across methods, quoting the
+    closed form only within the parametric family. Phase 6 does that for its
+    three methods in ``m06_*_crps.csv``. Until this table existed the combined
+    model -- the one Chapter 4's RQ2 x RQ3 result rests on -- had a closed-form
+    CRPS in the master table and no grid counterpart, so it was the one method
+    that could not legally be set beside ``Quantile-LSTM`` on a proper score.
+    The gap is material rather than cosmetic: on a three-point grid the
+    trapezoidal estimate is a lower bound that understates the closed form by
+    roughly 17% here, so comparing one method's grid value against another's
+    closed form would manufacture a difference out of the estimator alone.
+
+    Rows are ``method``, ``crps``, ``estimator``, ``n``. Each closed form comes
+    from that method's **own** predictive law (:func:`lognormal_law`), so
+    ``Quantile-LSTM`` -- which asserts no law -- appears on the grid only.
+    """
+    grid_q = quantile_grid(uqp)
+    taus = sorted(grid_q)
+    y_uq = uqp[ACTUAL_COL].to_numpy(dtype=float)
+    y_comb = preds[ACTUAL_COL].to_numpy(dtype=float)
+
+    rows, laws = [], []
+    for method, frame, y in ((COMBINED_NAME, preds, y_comb),
+                             (MC_NAME, uqp, y_uq),
+                             (GAUSS_NAME, uqp, y_uq)):
+        law = lognormal_law(frame, method)
+        if law is None:
+            continue
+        mu = law[0].to_numpy(dtype=float)
+        sd = law[1].to_numpy(dtype=float)
+        laws.append((method, frame, y, mu, sd))
+        rows.append({"method": method, "crps": crps_lognormal(y, mu, sd),
+                     "estimator": LOGNORMAL_CRPS, "n": int(len(y))})
+
+    rows.append({"method": Q_NAME, "crps": crps_from_quantiles(y_uq, grid_q),
+                 "estimator": f"trapezoidal, {len(grid_q)}-point grid",
+                 "n": int(len(y_uq))})
+
+    for method, frame, y, mu, sd in laws:
+        grid = {t: pd.Series(lognormal_quantile(mu, sd, t), index=frame.index)
+                for t in taus}
+        rows.append({"method": f"{method} (same grid)",
+                     "crps": crps_from_quantiles(y, grid),
+                     "estimator": f"trapezoidal, {len(grid)}-point grid",
+                     "n": int(len(y))})
+
+    out = pd.DataFrame(rows)[["method", "crps", "estimator", "n"]]
+    assert_crps_distinct(out, model_col="method")
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -1299,6 +1393,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
 
     master = master_table(preds, base, uqp, reg_full, labels, level=headline_level)
     cal = calibration_table(preds, uqp, levels)
+    crps = crps_table(preds, uqp)
     per_regime = per_regime_interval_metrics(
         preds[ACTUAL_COL].astype(float),
         preds[f"{COMBINED_NAME}_lo{int(round(headline_level*100))}"].astype(float),
@@ -1325,6 +1420,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     log.info("PHASE 7 master:\n%s", master.round(5).to_string(index=False))
     log.info("PHASE 7 calibration:\n%s", cal.round(5).to_string(index=False))
     log.info("PHASE 7 sigma-scale:\n%s", sigma.round(4).to_string(index=False))
+    log.info("PHASE 7 CRPS:\n%s", crps.to_string(index=False))
 
     # --- persist ---
     if not getattr(args, "from_predictions", False):
@@ -1334,6 +1430,7 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
     stem = f"m07_combined_{name}"
     master.to_csv(tables / f"{stem}_master.csv", index=False)
     cal.to_csv(tables / f"{stem}_calibration.csv", index=False)
+    crps.to_csv(tables / f"{stem}_crps.csv", index=False)
     pr = per_regime.copy()
     pr.insert(0, "regime_shift", int(DEFAULT_REGIME_SHIFT))
     pr.insert(1, "timing", regime_timing_label(DEFAULT_REGIME_SHIFT))
@@ -1352,7 +1449,8 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
                          level=headline_level)
 
     return {
-        "name": name, "master": master, "calibration": cal, "per_regime": per_regime,
+        "name": name, "master": master, "calibration": cal, "crps": crps,
+        "per_regime": per_regime,
         "dm": dm, "gw": gw, "sigma_scale": sigma, "width_by_regime": width,
         "coverage": cov, "coverage_conditional": con, "labels": labels,
         "headline_level": headline_level, "mc_samples": n_mc,
