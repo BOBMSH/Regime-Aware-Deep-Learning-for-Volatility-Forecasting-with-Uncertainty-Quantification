@@ -65,13 +65,13 @@ Pooled, the best model on QLIKE is **LSTM-RVonly** (0.2596); the combined model 
 
 **Giacomini–White, conditional on the lagged regime indicator.** A negative moment means the first model has the lower loss in that state.
 
-| model_a | model_b | n | gw_regime_stat | gw_regime_df | gw_regime_p | moment_calm | moment_transitional | moment_crisis | a_relative_edge_in | a_wins_in |
-|---|---|---|---|---|---|---|---|---|---|---|
-| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | 784 | 4.8198 | 3 | 0.185478 | -0.001028 | -0.002953 | 0.000687667 | transitional | calm, transitional |
-| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | 784 | 4.1276 | 3 | 0.248009 | -0.000148962 | 3.87121e-05 | -6.55747e-05 | calm | calm, crisis |
-| MC-Dropout-Regime-LSTM-B | HAR-RV | 784 | 39.8344 | 3 | 1.15519e-08 | 0.007756 | -0.021616 | 0.001310 | transitional | transitional |
-| MC-Dropout-Regime-LSTM-B | LSTM | 784 | 4.5058 | 3 | 0.211777 | -0.000896271 | -0.002901 | 0.000718617 | transitional | calm, transitional |
-| MC-Dropout-LSTM | LSTM | 784 | 2.0370 | 3 | 0.564772 | 0.000131835 | 5.12326e-05 | 3.09507e-05 | crisis | none |
+| model_a | model_b | n | gw_regime_stat | gw_regime_df | gw_regime_p | gw_regime_stat_uncentred | gw_regime_p_uncentred | moment_calm | moment_transitional | moment_crisis | a_relative_edge_in | a_wins_in |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | 784 | 4.8198 | 3 | 0.185478 | 4.79 | 0.1878 | -0.001028 | -0.002953 | 0.000687667 | transitional | calm, transitional |
+| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | 784 | 4.1276 | 3 | 0.248009 | 4.106 | 0.2502 | -0.000148962 | 3.87121e-05 | -6.55747e-05 | calm | calm, crisis |
+| MC-Dropout-Regime-LSTM-B | HAR-RV | 784 | 39.8344 | 3 | 1.15519e-08 | 37.91 | 2.956e-08 | 0.007756 | -0.021616 | 0.001310 | transitional | transitional |
+| MC-Dropout-Regime-LSTM-B | LSTM | 784 | 4.5058 | 3 | 0.211777 | 4.48 | 0.2141 | -0.000896271 | -0.002901 | 0.000718617 | transitional | calm, transitional |
+| MC-Dropout-LSTM | LSTM | 784 | 2.0370 | 3 | 0.564772 | 2.032 | 0.5659 | 0.000131835 | 5.12326e-05 | 3.09507e-05 | crisis | none |
 
 ## RQ3, made inferential — coverage tests on the full 784-day sample
 

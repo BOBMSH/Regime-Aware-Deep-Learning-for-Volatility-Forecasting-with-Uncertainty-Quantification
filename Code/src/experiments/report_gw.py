@@ -23,6 +23,24 @@ It answers two distinct questions per model pair:
   subsample is not contiguous in calendar time, its HAC correction is an
   approximation. The joint test above is the one to quote; these are context.
 
+Both GW estimators, side by side (2026-09-03)
+--------------------------------------------
+The Wald statistic needs a long-run covariance for ``z_t = h_(t-1) d_t``, and
+there are two defensible ones. The **centred** estimator is the sample variance
+of ``z_t``; the **uncentred** one is ``(1/n) Σ z z'``, which imposes the null and
+is what Giacomini & White's asymptotics actually assume. Centring subtracts
+``z̄ z̄'``, shrinking ``Ω̂`` and inflating the statistic, so the default is mildly
+over-sized. The joint table now reports both (``*_uncentred`` columns) instead of
+leaving the sensitivity as a remark in :func:`~src.evaluation.significance._hac_matrix`'s
+docstring.
+
+At the ``lag = 0`` these tests use, Sherman-Morrison gives
+``GW_u = GW_c / (1 + GW_c / n)`` exactly -- a strictly increasing map. So the two
+estimators rank the pairs identically, the uncentred p-value is never the smaller
+one, and the columns are a check on the arithmetic as much as a robustness
+report. The run prints the observed shrinkage and the number of 5% verdicts that
+move, which is the fact Chapter 3 should cite.
+
 Where the regime label comes from (2026-08-19 (iv))
 ---------------------------------------------------
 The lagged indicators must come from the **full Phase-4 regime series**, not from
@@ -194,6 +212,11 @@ def joint_table(
 
     ``state`` is the full-history causal regime series; passing ``index=y.index``
     is what lets the lag reach back across the start of the evaluation window.
+
+    Each GW test is computed under **both** long-run covariance estimators -- the
+    centred default and the uncentred one that imposes the null (see the module
+    docstring). The ``*_uncentred`` columns are what make the project's centring
+    choice auditable instead of asserted.
     """
     h = regime_test_function(state, n_states=len(labels), labels=list(labels),
                              index=y.index)
@@ -204,6 +227,10 @@ def joint_table(
             continue
         gw_reg = giacomini_white(y, models[a], models[b], h)
         gw_std = giacomini_white(y, models[a], models[b])  # h = (1, lagged diff)
+        # The strict GW estimator, same test functions and same lag; only the
+        # long-run covariance changes.
+        gw_reg_u = giacomini_white(y, models[a], models[b], h, centred=False)
+        gw_std_u = giacomini_white(y, models[a], models[b], centred=False)
         dm = diebold_mariano(y, models[a], models[b])
         row = {
             "model_a": a,
@@ -214,9 +241,13 @@ def joint_table(
             "gw_regime_stat": gw_reg["gw_stat"],
             "gw_regime_df": gw_reg["df"],
             "gw_regime_p": gw_reg["p_value"],
+            "gw_regime_stat_uncentred": gw_reg_u["gw_stat"],
+            "gw_regime_p_uncentred": gw_reg_u["p_value"],
             "gw_lagdiff_stat": gw_std["gw_stat"],
             "gw_lagdiff_df": gw_std["df"],
             "gw_lagdiff_p": gw_std["p_value"],
+            "gw_lagdiff_stat_uncentred": gw_std_u["gw_stat"],
+            "gw_lagdiff_p_uncentred": gw_std_u["p_value"],
         }
         for lab, mom in zip(labels, gw_reg["moments"]):
             # E[1{state=k} * d]; negative => model_a has the lower loss in state k.
@@ -345,12 +376,27 @@ def main(argv: list[str] | None = None) -> int:
     joint.to_csv(joint_path, index=False)
     per.to_csv(per_path, index=False)
 
-    pd.set_option("display.width", 160, "display.max_columns", 40)
+    pd.set_option("display.width", 220, "display.max_columns", 40)
     print("\n=== Giacomini-White, conditional on the lagged regime indicator ===")
     print(joint.to_string(index=False, float_format=lambda v: f"{v:.4g}"))
     print("\n=== Descriptive DM within each regime subsample ===")
     print(per.to_string(index=False, float_format=lambda v: f"{v:.4g}"))
     print(f"\nwrote {joint_path}\n      {per_path}")
+
+    # Centring sensitivity, reported as a measurement. The uncentred estimator
+    # imposes the null and can only shrink the statistic, so the question is not
+    # whether the numbers move -- they must -- but whether any verdict does.
+    if len(joint):
+        stat_c = joint["gw_regime_stat"].replace(0.0, np.nan)
+        shrink = 100.0 * (1.0 - joint["gw_regime_stat_uncentred"] / stat_c)
+        flips = int(
+            ((joint["gw_regime_p"] < 0.05) != (joint["gw_regime_p_uncentred"] < 0.05)).sum()
+            + ((joint["gw_lagdiff_p"] < 0.05) != (joint["gw_lagdiff_p_uncentred"] < 0.05)).sum()
+        )
+        print(f"\nCentring: the strict (uncentred) estimator shrinks the regime "
+              f"statistic by {shrink.min():.2f}-{shrink.max():.2f}% over "
+              f"{len(joint)} pairs at n={int(joint['n'].iloc[0])}; "
+              f"5% verdicts that change: {flips} of {2 * len(joint)}.")
 
     sig = joint[joint["gw_regime_p"] < 0.05]
     if len(sig):

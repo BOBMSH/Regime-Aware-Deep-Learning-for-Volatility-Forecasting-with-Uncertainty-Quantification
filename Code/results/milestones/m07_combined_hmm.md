@@ -65,13 +65,13 @@ Pooled, the best model on QLIKE is **MC-Dropout-Regime-LSTM-B** (0.2582); the co
 
 **Giacomini–White, conditional on the lagged regime indicator.** A negative moment means the first model has the lower loss in that state.
 
-| model_a | model_b | n | gw_regime_stat | gw_regime_df | gw_regime_p | moment_calm | moment_transitional | moment_crisis | a_relative_edge_in | a_wins_in |
-|---|---|---|---|---|---|---|---|---|---|---|
-| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | 784 | 9.5807 | 3 | 0.022489 | -0.002080 | -0.003924 | -0.001046 | transitional | calm, transitional, crisis |
-| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | 784 | 3.0358 | 3 | 0.386145 | -0.000148211 | 1.96362e-05 | -2.3896e-06 | calm | calm, crisis |
-| MC-Dropout-Regime-LSTM-B | HAR-RV | 784 | 24.1874 | 3 | 2.28275e-05 | 0.003775 | -0.019382 | -0.00069985 | transitional | transitional, crisis |
-| MC-Dropout-Regime-LSTM-B | LSTM | 784 | 9.1587 | 3 | 0.027253 | -0.001962 | -0.003892 | -0.000982456 | transitional | calm, transitional, crisis |
-| MC-Dropout-LSTM | LSTM | 784 | 1.7100 | 3 | 0.634702 | 0.000118863 | 3.20491e-05 | 6.31057e-05 | transitional | none |
+| model_a | model_b | n | gw_regime_stat | gw_regime_df | gw_regime_p | gw_regime_stat_uncentred | gw_regime_p_uncentred | moment_calm | moment_transitional | moment_crisis | a_relative_edge_in | a_wins_in |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| MC-Dropout-Regime-LSTM-B | MC-Dropout-LSTM | 784 | 9.5807 | 3 | 0.022489 | 9.465 | 0.02371 | -0.002080 | -0.003924 | -0.001046 | transitional | calm, transitional, crisis |
+| MC-Dropout-Regime-LSTM-B | Regime-LSTM-B | 784 | 3.0358 | 3 | 0.386145 | 3.024 | 0.3879 | -0.000148211 | 1.96362e-05 | -2.3896e-06 | calm | calm, crisis |
+| MC-Dropout-Regime-LSTM-B | HAR-RV | 784 | 24.1874 | 3 | 2.28275e-05 | 23.46 | 3.233e-05 | 0.003775 | -0.019382 | -0.00069985 | transitional | transitional, crisis |
+| MC-Dropout-Regime-LSTM-B | LSTM | 784 | 9.1587 | 3 | 0.027253 | 9.053 | 0.02859 | -0.001962 | -0.003892 | -0.000982456 | transitional | calm, transitional, crisis |
+| MC-Dropout-LSTM | LSTM | 784 | 1.7100 | 3 | 0.634702 | 1.706 | 0.6355 | 0.000118863 | 3.20491e-05 | 6.31057e-05 | transitional | none |
 
 ## RQ3, made inferential — coverage tests on the full 784-day sample
 

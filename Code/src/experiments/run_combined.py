@@ -678,6 +678,12 @@ def uq_significance_tables(preds: pd.DataFrame, base: pd.DataFrame,
     * combined vs ``HAR-RV`` -- the benchmark any deep alternative must clear;
     * ``MC-Dropout-LSTM`` vs the Phase-3 ``LSTM`` -- the Phase-6 sanity pair,
       carried forward so the master table is self-contained.
+
+    Each GW test is reported under both long-run covariance estimators, matching
+    ``report_gw``: the centred default and the uncentred one that imposes the
+    null. At the lag these tests use the second is
+    ``GW_c / (1 + GW_c / n)`` exactly, so the ``*_uncentred`` columns are a check
+    on the arithmetic as much as a sensitivity.
     """
     y = preds[ACTUAL_COL].astype(float)
     pool = {COMBINED_NAME: preds[COMBINED_NAME]}
@@ -705,10 +711,14 @@ def uq_significance_tables(preds: pd.DataFrame, base: pd.DataFrame,
         dm_rows.append({"model_a": a, "model_b": b, "dm_stat": d["dm_stat"],
                         "p_value": d["p_value"], "mean_loss_diff": d["mean_loss_diff"],
                         "better": a if d["dm_stat"] < 0 else b, "n": d["n"]})
-        g = giacomini_white(j["y"], j["a"], j["b"], h.reindex(j.index))
+        hj = h.reindex(j.index)
+        g = giacomini_white(j["y"], j["a"], j["b"], hj)
+        g_u = giacomini_white(j["y"], j["a"], j["b"], hj, centred=False)
         row = {"model_a": a, "model_b": b, "n": g["n"],
                "gw_regime_stat": g["gw_stat"], "gw_regime_df": g["df"],
-               "gw_regime_p": g["p_value"]}
+               "gw_regime_p": g["p_value"],
+               "gw_regime_stat_uncentred": g_u["gw_stat"],
+               "gw_regime_p_uncentred": g_u["p_value"]}
         for lab, mom in zip(labels, g["moments"]):
             row[f"moment_{lab}"] = float(mom)
         moments = np.asarray(g["moments"], dtype=float)

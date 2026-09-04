@@ -342,7 +342,8 @@ def dm_lag_sensitivity(
 # --------------------------------------------------------------------------- #
 # Giacomini–White (2006) conditional predictive ability                        #
 # --------------------------------------------------------------------------- #
-def _hac_matrix(Z: np.ndarray, lag: int, *, divisor: str = "n") -> np.ndarray:
+def _hac_matrix(Z: np.ndarray, lag: int, *, divisor: str = "n",
+                centred: bool = True) -> np.ndarray:
     """Newey–West (Bartlett) long-run covariance of the rows of ``Z``.
 
     ``divisor`` selects the autocovariance normalisation:
@@ -358,36 +359,43 @@ def _hac_matrix(Z: np.ndarray, lag: int, *, divisor: str = "n") -> np.ndarray:
       ``(n−k)/n`` per lag — under 0.2% of the statistic at the dissertation's
       ``n ≈ 784``, ``lag = 9``.
 
-    Centring — a known, deliberate, mildly *liberal* choice (state this in Ch3)
-    --------------------------------------------------------------------------
-    ``Z`` is **mean-centred** before the moments are accumulated, i.e. the
-    estimator is the sample (co)variance of ``z_t``. Under the Giacomini–White
-    null the conditional moment ``E[h_(t-1) · d_t]`` is zero, so at ``τ = 1`` the
-    theoretically correct long-run covariance is the **uncentred** second moment
-    ``(1/n) Σ z_t z_t'`` — imposing the null is exactly what makes the Wald
-    statistic asymptotically ``χ²_q``. Centring subtracts ``z̄ z̄'``, which makes
-    ``Ω̂`` smaller and the statistic correspondingly larger: the test is slightly
-    **over-sized**.
+    Centring — a deliberate, mildly *liberal* choice (state this in Ch3)
+    --------------------------------------------------------------------
+    ``centred=True`` (default) mean-centres ``Z`` before the moments are
+    accumulated, i.e. the estimator is the sample (co)variance of ``z_t``. Under
+    the Giacomini–White null the conditional moment ``E[h_(t-1) · d_t]`` is zero,
+    so at ``τ = 1`` the theoretically correct long-run covariance is the
+    **uncentred** second moment ``(1/n) Σ z_t z_t'`` — imposing the null is
+    exactly what makes the Wald statistic asymptotically ``χ²_q``. Centring
+    subtracts ``z̄ z̄'``, which makes ``Ω̂`` smaller and the statistic
+    correspondingly larger: the test is slightly **over-sized**.
 
-    Measured on this project's headline pairs (regime one-hot test function,
-    ``τ = 1``, ``lag = 0``, ``n = 784``) the effect is immaterial:
+    ``centred=False`` is the strict GW estimator. Both are now computed for every
+    pair and written side by side — ``report_gw``'s ``*_gw_joint.csv`` and Phase
+    7's ``*_gw.csv`` carry ``*_uncentred`` columns — so the sensitivity is an
+    artefact a reader can check rather than a figure quoted in a docstring.
 
-    * ``Regime-LSTM-B vs HAR-RV``: 40.132 centred, 38.178 uncentred (+5.1%);
-      p 9.99e-09 → 2.59e-08.
-    * ``Regime-LSTM-A vs HAR-RV``: 22.884 centred, 22.235 uncentred (+2.9%);
-      p 4.27e-05 → 5.83e-05.
+    At ``lag = 0`` the two are related in closed form, which is what makes that
+    comparison conclusive rather than merely reassuring. There
+    ``Ω̂_u = Ω̂_c + z̄ z̄'``, so Sherman–Morrison collapses the quadratic form to
 
-    No conclusion in the dissertation changes at any conventional level. The
-    centred form is kept because it is what :func:`diebold_mariano` uses, so the
-    documented ``q = 1`` DM/GW equivalence holds exactly; the *direction* of the
-    bias is recorded here — and belongs in Chapter 3 — rather than left for a
-    reader to discover. ``divisor`` does not switch this off; a caller wanting
-    the strict GW estimator should form ``(Z.T @ Z) / n`` directly.
+        GW_u  =  GW_c / (1 + GW_c / n)
+
+    with three consequences worth stating in Chapter 3. The map is strictly
+    increasing, so at a common ``n`` the two estimators **rank the pairs
+    identically** — centring cannot reorder the board. ``GW_u ≤ GW_c`` always,
+    so the uncentred p-value is never the smaller one and any rejection that
+    survives the strict estimator is safe. And ``GW_u < n``, so the uncentred
+    statistic is bounded by the sample size however extreme the moments are.
+    The default stays centred because it is what :func:`diebold_mariano` uses, so
+    the documented ``q = 1`` DM/GW equivalence holds exactly. At ``lag > 0`` the
+    Bartlett terms break the rank-one relation and the identity no longer holds,
+    which is why this is a flag rather than a post-hoc correction.
     """
     if divisor not in ("n", "n-k"):
         raise ValueError(f"divisor must be 'n' or 'n-k', got {divisor!r}")
     n = Z.shape[0]
-    Zc = Z - Z.mean(axis=0)
+    Zc = Z - Z.mean(axis=0) if centred else Z
     omega = (Zc.T @ Zc) / n
     for k in range(1, int(lag) + 1):
         w = 1.0 - k / (lag + 1)
@@ -407,6 +415,7 @@ def giacomini_white(
     horizon: int = 1,
     hac_lag: int | None = None,
     hac_divisor: str = "n",
+    centred: bool = True,
 ) -> dict:
     """Giacomini–White (2006) test of **conditional** predictive ability.
 
@@ -450,13 +459,19 @@ def giacomini_white(
     hac_lag : override the Bartlett lag of the long-run covariance.
     hac_divisor : autocovariance normalisation, ``"n"`` (default, PSD-safe) or
         ``"n-k"`` (matches :func:`diebold_mariano` exactly); see :func:`_hac_matrix`.
+    centred : whether the long-run covariance is the sample *variance* of
+        ``z_t`` (``True``, default) or the uncentred second moment ``(1/n) Σ z z'``
+        that imposes the null (``False``, the strict Giacomini–White estimator).
+        The default is mildly over-sized and preserves the exact ``q = 1`` DM/GW
+        equivalence; see :func:`_hac_matrix` for the lag-0 identity relating the
+        two and for where both are reported.
 
     Returns
     -------
     dict with ``gw_stat``, ``p_value``, ``df``, ``n``, ``hac_lag``, ``loss``,
-    ``mean_loss_diff``, and ``moments`` (the per-column mean of ``h_{t-1} d_t``,
-    whose *signs* say which model wins in which state — the statistic itself is
-    two-sided and directionless).
+    ``centred``, ``mean_loss_diff``, and ``moments`` (the per-column mean of
+    ``h_{t-1} d_t``, whose *signs* say which model wins in which state — the
+    statistic itself is two-sided and directionless).
 
     Notes
     -----
@@ -474,10 +489,10 @@ def giacomini_white(
       formal justification, not the descriptive per-regime moments.
     * A **negative** entry in ``moments`` means model *a* has the lower loss in
       that state (same sign convention as :func:`diebold_mariano`).
-    * With a constant test function, a matched ``hac_lag`` and
-      ``hac_divisor="n-k"``, ``gw_stat`` equals the squared uncorrected DM
-      statistic — the unconditional test is the ``q = 1`` special case, and the
-      unit tests assert exactly that.
+    * With a constant test function, a matched ``hac_lag``,
+      ``hac_divisor="n-k"`` and the default ``centred=True``, ``gw_stat`` equals
+      the squared uncorrected DM statistic — the unconditional test is the
+      ``q = 1`` special case, and the unit tests assert exactly that.
     * The columns of ``h`` must be linearly independent: passing a constant
       *together with* a full set of one-hot indicators is rank-deficient (they sum
       to the constant) and raises. Drop one or the other.
@@ -549,11 +564,12 @@ def giacomini_white(
             "hac_lag": int(lag),
             "horizon": tau,
             "loss": loss,
+            "centred": bool(centred),
             "mean_loss_diff": 0.0,
             "moments": zbar,
         }
 
-    omega = _hac_matrix(Z, lag, divisor=hac_divisor)
+    omega = _hac_matrix(Z, lag, divisor=hac_divisor, centred=centred)
 
     # Rank check: a singular Omega means collinear test functions (e.g. a constant
     # alongside a complete one-hot basis), which makes the Wald statistic
@@ -580,6 +596,7 @@ def giacomini_white(
         "hac_lag": int(lag),
         "horizon": tau,
         "loss": loss,
+        "centred": bool(centred),
         "mean_loss_diff": float(d.mean()),
         "moments": zbar,
     }

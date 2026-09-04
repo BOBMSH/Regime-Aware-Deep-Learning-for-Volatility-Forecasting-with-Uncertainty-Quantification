@@ -300,6 +300,69 @@ def test_gw_detects_regime_dependent_edge_that_pooled_dm_misses():
     assert np.argmax(cond["moments"]) == 0
 
 
+# ------------------------------- centring of the long-run covariance -------- #
+def test_gw_uncentred_equals_the_closed_form_wald_at_lag_zero():
+    """``centred=False``, reimplemented from scratch for the ``q = 1`` case.
+
+    With ``h_t = 1`` the strict GW covariance is ``(1/n) Σ d_t²``, so the Wald
+    statistic collapses to ``(Σ d)² / (Σ d²)`` -- no linear algebra, nothing
+    borrowed from the function under test but the loss itself. This pins the
+    *absolute* value; the identity test below pins its relationship to the
+    centred form, and :func:`test_gw_constant_test_function_equals_squared_dm`
+    pins that to DM. The three together leave no unanchored quantity.
+    """
+    y, good, mid, _ = _synthetic()
+    d = (np.asarray(qlike_loss(y, good), dtype=float)
+         - np.asarray(qlike_loss(y, mid), dtype=float))
+    expected = d.sum() ** 2 / (d ** 2).sum()
+    gw = giacomini_white(y, good, mid, np.ones(len(y)), hac_lag=0, centred=False)
+    assert gw["gw_stat"] == pytest.approx(expected, rel=1e-12)
+    assert gw["centred"] is False
+
+
+def test_gw_centring_identity_holds_at_lag_zero():
+    """``GW_u = GW_c / (1 + GW_c / n)`` exactly, by Sherman-Morrison.
+
+    At ``lag = 0`` the uncentred covariance is the centred one plus the rank-one
+    ``z̄ z̄'``, so the two statistics are a closed-form transform of each other.
+    That is why the centring choice is *reported* rather than agonised over: the
+    map is strictly increasing (it cannot reorder pairs), it can only shrink (the
+    centred test is the liberal one), and it is bounded by ``n``.
+    """
+    y, a, b, states = _regime_synthetic()
+    h = regime_test_function(states, n_states=3)
+    for test_fn in (np.ones(len(y)), h):
+        c = giacomini_white(y, a, b, test_fn, hac_lag=0)
+        u = giacomini_white(y, a, b, test_fn, hac_lag=0, centred=False)
+        n = c["n"]
+        assert u["gw_stat"] == pytest.approx(
+            c["gw_stat"] / (1.0 + c["gw_stat"] / n), rel=1e-9)
+        assert u["gw_stat"] <= c["gw_stat"]      # the strict estimator is conservative
+        assert u["gw_stat"] < n                  # ... and bounded by the sample size
+        assert u["p_value"] >= c["p_value"]
+
+
+def test_gw_centring_cannot_reorder_pairs_at_a_common_n():
+    """The Chapter 3 claim: which pair looks strongest is estimator-independent."""
+    y, good, mid, bad = _synthetic()
+    h = np.ones(len(y))
+    pairs = [(good, mid), (good, bad), (mid, bad)]
+    c = [giacomini_white(y, x, z, h, hac_lag=0)["gw_stat"] for x, z in pairs]
+    u = [giacomini_white(y, x, z, h, hac_lag=0, centred=False)["gw_stat"]
+         for x, z in pairs]
+    assert np.argsort(c).tolist() == np.argsort(u).tolist()
+
+
+def test_gw_defaults_to_the_centred_estimator():
+    """Every committed number predates the flag, so the default must not move."""
+    y, good, mid, _ = _synthetic()
+    h = np.ones(len(y))
+    default = giacomini_white(y, good, mid, h)
+    explicit = giacomini_white(y, good, mid, h, centred=True)
+    assert default["centred"] is True
+    assert default["gw_stat"] == explicit["gw_stat"]
+
+
 def test_gw_rejects_collinear_test_functions():
     """Constant + a complete one-hot basis is rank-deficient -> explicit error."""
     y, a, b, states = _regime_synthetic()
