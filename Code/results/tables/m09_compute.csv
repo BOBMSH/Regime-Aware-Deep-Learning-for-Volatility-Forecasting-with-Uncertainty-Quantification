@@ -1,0 +1,59 @@
+section,item,value,unit,detail,source
+parameters,LSTM,67713,trainable parameters,"1 x 67,713 (H=128, F=2)",instantiated (phase 3)
+parameters,LSTM-RVonly,67201,trainable parameters,"1 x 67,201 (H=128, F=1)",instantiated (phase 3)
+parameters,LSTM-VIX,68225,trainable parameters,"1 x 68,225 (H=128, F=3)",instantiated (phase 3)
+parameters,Regime-LSTM-A,69249,trainable parameters,"1 x 69,249 (H=128, F=5)",instantiated (phase 5)
+parameters,Regime-LSTM-A-RVonly,68737,trainable parameters,"1 x 68,737 (H=128, F=4)",instantiated (phase 5)
+parameters,Regime-LSTM-B,203139,trainable parameters,"3 x 67,713 (H=128, F=2)",instantiated (phase 5)
+parameters,MC-Dropout-LSTM,67713,trainable parameters,"1 x 67,713 (H=128, F=2)",instantiated (phase 6)
+parameters,Quantile-LSTM,67971,trainable parameters,"1 x 67,971 (H=128, F=2, Q=3)",instantiated (phase 6)
+parameters,MC-Dropout-Regime-LSTM-B,203139,trainable parameters,"3 x 67,713 (H=128, F=2)",instantiated (phase 7)
+parameters,LSTM-Gaussian,67713,trainable parameters,the MC-Dropout network read deterministically,same network as MC-Dropout-LSTM
+runtime,end to end,836.1,seconds,13.9 minutes; 2026-08-24 05:25:20.218000 -> 05:39:16.344000,rerun-20260824-052455
+runtime,01-phase2-econometric,7.8,seconds,05:25:20.218000 -> 05:25:27.980000,rerun-20260824-052455
+runtime,"walk-forward: GARCH [phase2-econometric, n=784]",1.1,seconds,,rerun-20260824-052455
+runtime,"walk-forward: EGARCH [phase2-econometric, n=784]",1.4,seconds,,rerun-20260824-052455
+runtime,"walk-forward: HAR-RV [phase2-econometric, n=784]",0.1,seconds,,rerun-20260824-052455
+runtime,"walk-forward: RW-RV [phase2-econometric, n=784]",0.0,seconds,,rerun-20260824-052455
+runtime,"walk-forward: GARCH [phase2-econometric, n=795]",1.0,seconds,,rerun-20260824-052455
+runtime,"walk-forward: EGARCH [phase2-econometric, n=795]",1.4,seconds,,rerun-20260824-052455
+runtime,"walk-forward: HAR-RV [phase2-econometric, n=795]",0.1,seconds,,rerun-20260824-052455
+runtime,"walk-forward: RW-RV [phase2-econometric, n=795]",0.0,seconds,,rerun-20260824-052455
+runtime,02-phase3-lstm,401.8,seconds,05:25:32.881000 -> 05:32:14.649000,rerun-20260824-052455
+runtime,02-phase3-lstm (hyperparameter sweep),378.3,seconds,18 combinations,rerun-20260824-052455
+runtime,"walk-forward: LSTM [phase3-lstm, n=784]",6.5,seconds,,rerun-20260824-052455
+runtime,"walk-forward: LSTM-RVonly [phase3-lstm, n=784]",6.5,seconds,,rerun-20260824-052455
+runtime,"walk-forward: LSTM-VIX [phase3-lstm, n=784]",9.4,seconds,,rerun-20260824-052455
+runtime,03-phase4-regimes,215.3,seconds,05:32:19.714000 -> 05:35:55.023000,rerun-20260824-052455
+runtime,04-phase5-regime-lstm,36.5,seconds,05:36:00.090000 -> 05:36:36.610000,rerun-20260824-052455
+runtime,"walk-forward: Regime-LSTM-A [phase5-regime-lstm, n=784]",6.2,seconds,,rerun-20260824-052455
+runtime,"walk-forward: Regime-LSTM-A-RVonly [phase5-regime-lstm, n=784]",6.6,seconds,,rerun-20260824-052455
+runtime,"walk-forward: Regime-LSTM-B [phase5-regime-lstm, n=784]",22.5,seconds,,rerun-20260824-052455
+runtime,05-phase5-regime-lstm-hmm,37.5,seconds,05:36:41.455000 -> 05:37:18.958000,rerun-20260824-052455
+runtime,"walk-forward: Regime-LSTM-A [phase5-regime-lstm-hmm, n=784]",6.8,seconds,,rerun-20260824-052455
+runtime,"walk-forward: Regime-LSTM-A-RVonly [phase5-regime-lstm-hmm, n=784]",6.9,seconds,,rerun-20260824-052455
+runtime,"walk-forward: Regime-LSTM-B [phase5-regime-lstm-hmm, n=784]",22.7,seconds,,rerun-20260824-052455
+runtime,06-report-gw,0.8,seconds,05:37:20.096000 -> 05:37:20.892000,rerun-20260824-052455
+runtime,07-report-gw-hmm,0.8,seconds,05:37:21.599000 -> 05:37:22.421000,rerun-20260824-052455
+runtime,08-report-dm-diagnostics,0.0,seconds,05:37:23.403000 -> 05:37:23.403000,rerun-20260824-052455
+runtime,09-phase6-uq,16.2,seconds,05:37:29.236000 -> 05:37:45.417000,rerun-20260824-052455
+runtime,10-phase6-uq-hmm,16.7,seconds,05:37:50.202000 -> 05:38:06.869000,rerun-20260824-052455
+runtime,11-phase7-combined,29.7,seconds,05:38:11.646000 -> 05:38:41.375000,rerun-20260824-052455
+runtime,12-phase7-combined-hmm,30.2,seconds,05:38:46.118000 -> 05:39:16.344000,rerun-20260824-052455
+environment,python,3.12.1,,,environment_stamp()
+environment,python_build,CPython,,,environment_stamp()
+environment,platform,Windows-11-10.0.26200-SP0,,,environment_stamp()
+environment,machine,AMD64,,,environment_stamp()
+environment,processor,"Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",,,environment_stamp()
+environment,cpu_count_logical,8,,,environment_stamp()
+environment,torch,2.13.0+cpu,,,environment_stamp()
+environment,numpy,2.4.4,,,environment_stamp()
+environment,pandas,2.3.3,,,environment_stamp()
+environment,scipy,1.17.1,,,environment_stamp()
+environment,sklearn,1.8.0,,,environment_stamp()
+environment,arch,8.0.0,,,environment_stamp()
+environment,hmmlearn,0.3.3,,,environment_stamp()
+environment,statsmodels,0.14.6,,,environment_stamp()
+environment,cpu_count_physical,4,cores,,psutil
+environment,memory_total,15.8,GiB,,psutil
+environment,accelerator,none,,CPU throughout; no CUDA device is requested anywhere in the pipeline,configs

@@ -415,11 +415,27 @@ class QuantileLSTMForecaster:
             "train_end": pd.Timestamp(fold.train_end).date().isoformat(),
         }
 
+    def build_network(self, input_size: int) -> "QuantileLSTMRegressor":
+        """The exact module :meth:`_train` fits, at this forecaster's settings.
+
+        The monotone head carries one extra output per quantile beyond the
+        single-output baseline, which is the whole difference in size between
+        this network and :class:`~src.models.deep.lstm.LSTMRegressor`.
+        """
+        return QuantileLSTMRegressor(
+            input_size=int(input_size), hidden_size=self.hidden_size,
+            n_quantiles=self.n_quantiles, num_layers=self.num_layers,
+            dropout=self.dropout,
+        )
+
+    def network_inputs(self) -> int:
+        return len(self.features)
+
+    def n_networks(self) -> int:
+        return 1
+
     def _train(self, X_fit, y_fit, X_es, y_es, fold):
-        model = QuantileLSTMRegressor(
-            input_size=X_fit.shape[2], hidden_size=self.hidden_size,
-            n_quantiles=self.n_quantiles, num_layers=self.num_layers, dropout=self.dropout,
-        ).to(self.device)
+        model = self.build_network(X_fit.shape[2]).to(self.device)
         opt = torch.optim.Adam(model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         taus = torch.as_tensor(self.quantiles, dtype=torch.float32, device=self.device)
 

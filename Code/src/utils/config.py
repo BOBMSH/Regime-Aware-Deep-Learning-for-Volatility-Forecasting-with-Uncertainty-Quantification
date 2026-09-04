@@ -57,6 +57,7 @@ def environment_stamp() -> dict:
     per-run stamp is the only record of it.
     """
     import importlib
+    import os
     import platform
     import sys
 
@@ -65,6 +66,10 @@ def environment_stamp() -> dict:
         "python_build": platform.python_implementation(),
         "platform": platform.platform(),
         "machine": platform.machine(),
+        # Timing claims are meaningless without the processor behind them, and
+        # every run here is CPU-only, so this is the hardware that matters.
+        "processor": platform.processor() or "unknown",
+        "cpu_count_logical": os.cpu_count() or 0,
     }
     for name in _STAMPED_PACKAGES:
         try:

@@ -237,13 +237,28 @@ class RegimeExpertForecaster:
             "train_end": pd.Timestamp(fold.train_end).date().isoformat(),
         }
 
+    def build_network(self, input_size: int) -> "LSTMRegressor":
+        """One expert, exactly as :meth:`_train_expert` builds it.
+
+        The mixture trains :attr:`K` of these -- see :meth:`n_networks` -- so the
+        parameter count of the model as a whole is ``K`` times this network's.
+        """
+        return LSTMRegressor(
+            input_size=int(input_size), hidden_size=self.hidden_size,
+            num_layers=self.num_layers, dropout=self.dropout,
+        )
+
+    def network_inputs(self) -> int:
+        """Experts see the base features only; the gate columns bypass them."""
+        return len(self.base_features)
+
+    def n_networks(self) -> int:
+        return int(self.K)
+
     def _train_expert(self, X_fit, y_fit, w_fit, X_es, y_es, w_es, fold, k):
         """Train one expert with a per-sample-weighted MSE (weights = regime-k gate)."""
         set_seed(self.seed + 100 * fold.fold_idx + k)
-        model = LSTMRegressor(
-            input_size=X_fit.shape[2], hidden_size=self.hidden_size,
-            num_layers=self.num_layers, dropout=self.dropout,
-        ).to(self.device)
+        model = self.build_network(X_fit.shape[2]).to(self.device)
         opt = torch.optim.Adam(model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
         Xf, yf, wf = self._t(X_fit), self._t(y_fit), self._t(w_fit)

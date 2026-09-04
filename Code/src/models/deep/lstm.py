@@ -243,11 +243,33 @@ class LSTMForecaster:
             "train_end": pd.Timestamp(fold.train_end).date().isoformat(),
         }
 
-    def _train(self, X_fit, y_fit, X_es, y_es, fold):
-        model = LSTMRegressor(
-            input_size=X_fit.shape[2], hidden_size=self.hidden_size,
+    def build_network(self, input_size: int) -> "LSTMRegressor":
+        """The exact module :meth:`_train` fits, at this forecaster's settings.
+
+        Factored out so that a parameter count quoted in the dissertation cannot
+        drift from the network actually trained: training calls this, and so
+        does ``report_compute`` when it instantiates the board to count.
+        """
+        return LSTMRegressor(
+            input_size=int(input_size), hidden_size=self.hidden_size,
             num_layers=self.num_layers, dropout=self.dropout,
-        ).to(self.device)
+        )
+
+    def network_inputs(self) -> int:
+        """Input width of :meth:`build_network`, without touching any data.
+
+        ``build_feature_target`` emits exactly one column per feature key, so
+        this equals ``X.shape[2]``; ``test_report_compute`` asserts that against
+        the real builder rather than leaving it as a comment.
+        """
+        return len(self.features)
+
+    def n_networks(self) -> int:
+        """Networks trained per fit -- one, against the mixture's ``K``."""
+        return 1
+
+    def _train(self, X_fit, y_fit, X_es, y_es, fold):
+        model = self.build_network(X_fit.shape[2]).to(self.device)
         opt = torch.optim.Adam(model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         loss_fn = nn.MSELoss()
 
