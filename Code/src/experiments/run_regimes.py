@@ -436,7 +436,9 @@ def run_profile(data_cfg, cfg, profile, args) -> dict:
              hmm_bic_k, jump_bic_k, HEADLINE_K)
 
     # --- 2. Headline models at the interpretable K ---
-    K = HEADLINE_K
+    # Declared in the config so the number is stated once, where a reader looks
+    # for it. HEADLINE_K stays as the default for a config predating the key.
+    K = int(cfg.get("headline_k", HEADLINE_K))
     hmm = GaussianHMMRegime(K, covariance_type=cfg.models.hmm.covariance_type,
                             n_init=int(cfg.models.hmm.n_init), n_iter=int(cfg.models.hmm.n_iter),
                             tol=float(cfg.models.hmm.tol), seed=seed).fit(Xz)

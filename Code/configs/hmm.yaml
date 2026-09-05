@@ -32,9 +32,15 @@ models:
     n_init: 12                # coordinate-descent restarts; lowest-objective kept
     max_iter: 40
 
-# --- Number of regimes (kept small + interpretable: calm/transitional/crisis) -
-# BIC selects K; the sweep is reported for sensitivity (Ch2 sec2.4, Guidolin 2011).
+# --- Number of regimes: K is FIXED at 3, not selected -------------------------
+# BIC is computed over this grid and REPORTED as a sensitivity; the headline K is
+# fixed at 3 on interpretability grounds (calm/transitional/crisis; Ch2 sec2.4,
+# Guidolin 2011; Ch3 sec3.3). The distinction is not academic here: on this
+# sample the two detectors disagree, BIC preferring K=3 for the HMM and K=4 for
+# the jump model (m04_regimes_intraday_2019_2022_bic.csv), so a rule of "take the
+# BIC argmin" would return two different state counts for one study.
 k_grid: [2, 3, 4]
+headline_k: 3                 # read by run_regimes; must be one of k_grid
 
 # --- Jump penalty (tuned, not set a priori: Ch2 sec2.4 / Nystrup 2020) --------
 # lambda governs the persistence bias-variance trade-off; the sweep is reported
@@ -60,7 +66,14 @@ jump_penalty_grid: [1.0, 3.0, 10.0, 30.0, 100.0, 300.0]
 # See m04's "Penalty selection and its sensitivity" section.
 jump_penalty_sensitivity_grid: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 5.0, 10.0, 30.0, 100.0, 300.0]
 
-jump_penalty: 30.0            # headline lambda (overridden if select_by_persistence)
+# NOT the headline lambda. select_by_persistence is enabled below, so the rule
+# above always overrides this for the headline jump model (it selects 3.0). What
+# this value actually does is fix the penalty at which the K-SELECTION BIC SWEEP
+# fits the jump model -- bic_over_k(..., float(cfg.jump_penalty), ...) -- so the
+# entire jump_bic column of m04_*_bic.csv is computed at 30.0. CHANGING THIS
+# NUMBER MOVES A PUBLISHED ARTEFACT; it is not a dead default. verify_claims'
+# regime-selection check re-derives the link between the two tables.
+jump_penalty: 30.0
 select_by_persistence:
   enabled: true
   min_mean_duration_days: 15  # shortest acceptable average regime length
@@ -91,7 +104,7 @@ profiles:
   - name: intraday_2019_2022
     headline: true
     target: oxfordman_rv5
-    description: "Regime detection on S&P 500 daily data over the Oxford-Man rv5 coverage (2000 -> 2022-02-25). HMM + Nystrup jump model on standardised daily log returns; K in {2,3,4} by BIC; VIX-quantile external validation; smoothed (descriptive) and causal-filtered (Phase-5) posteriors."
+    description: "Regime detection on S&P 500 daily data over the Oxford-Man rv5 coverage (2000 -> 2022-02-25). HMM + Nystrup jump model on standardised daily log returns; K reported over {2,3,4} by BIC but fixed at 3; VIX-quantile external validation; smoothed (descriptive) and causal-filtered (Phase-5) posteriors."
 
 # --- Output paths (mirror the other phases; results are the source of truth) --
 paths:

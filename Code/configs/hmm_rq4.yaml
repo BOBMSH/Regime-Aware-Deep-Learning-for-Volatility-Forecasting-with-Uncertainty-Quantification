@@ -51,6 +51,7 @@ models:
 # result: if .FTSE's criterion prefers a different count, that is evidence about
 # how portable a three-state description of "calm / transitional / crisis" is.
 k_grid: [2, 3, 4]
+headline_k: 3                 # read by run_regimes; must be one of k_grid
 
 # --- Jump penalty: THE SAME PRE-REGISTERED GRID AND THE SAME RULE ------------
 # Fixed 2026-05-15, before any Phase-5 result existed, and not widened for this
@@ -59,7 +60,10 @@ k_grid: [2, 3, 4]
 jump_penalty_grid: [1.0, 3.0, 10.0, 30.0, 100.0, 300.0]
 jump_penalty_sensitivity_grid: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 5.0, 10.0, 30.0, 100.0, 300.0]
 
-jump_penalty: 30.0            # overridden by select_by_persistence below
+# Same role as in configs/hmm.yaml: never the headline lambda (the persistence
+# rule always overrides it), but it IS the penalty at which the K-selection BIC
+# sweep fits the jump model, so it is load-bearing for m04_*_bic.csv.
+jump_penalty: 30.0
 select_by_persistence:
   enabled: true
   min_mean_duration_days: 15  # identical floor
