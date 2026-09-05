@@ -22,10 +22,10 @@
 <text x="162" y="474" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#1a1a1a" letter-spacing=".6">STAGE 4</text>
 <text x="162" y="491" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.5" fill="#6b6b6b">Model</text>
 <text x="162" y="506" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.5" fill="#6b6b6b">estimation</text>
-<rect x="168" y="626" width="766" height="84" rx="7" fill="#f2f3f2" stroke="#4a4a4a" stroke-width=".7" stroke-dasharray="2 2.5"/>
-<text x="162" y="648" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#1a1a1a" letter-spacing=".6">STAGE 5</text>
-<text x="162" y="665" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.5" fill="#6b6b6b">Uncertainty</text>
-<text x="162" y="680" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.5" fill="#6b6b6b">quantification</text>
+<rect x="168" y="624" width="766" height="88" rx="7" fill="#f2f3f2" stroke="#4a4a4a" stroke-width=".7" stroke-dasharray="2 2.5"/>
+<text x="162" y="646" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#1a1a1a" letter-spacing=".6">STAGE 5</text>
+<text x="162" y="663" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.5" fill="#6b6b6b">Uncertainty</text>
+<text x="162" y="678" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.5" fill="#6b6b6b">quantification</text>
 <rect x="168" y="748" width="766" height="130" rx="7" fill="#f2f3f2" stroke="#4a4a4a" stroke-width=".7" stroke-dasharray="2 2.5"/>
 <text x="162" y="770" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#1a1a1a" letter-spacing=".6">STAGE 6</text>
 <text x="162" y="787" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.5" fill="#6b6b6b">Evaluation</text>
@@ -59,9 +59,14 @@
 <text x="803.0" y="526.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">A: regime as feature</text>
 <text x="803.0" y="542.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">B: mixture of experts</text>
 <text x="803.0" y="561.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-style="italic" fill="#4a4a4a">fitted once, then frozen</text>
-<rect x="182" y="640" width="738" height="56" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
-<text x="551.0" y="664.75" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Predictive distribution</text>
-<text x="551.0" y="680.25" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">MC dropout · quantile head; retransformed to the mean scale (Eq. 3.4)</text>
+<rect x="182" y="636" width="234" height="64" rx="4" fill="#fbfbfb" stroke="#9a9a9a" stroke-width="1" stroke-dasharray="3.5 3"/>
+<text x="299.0" y="658.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#4a4a4a">Point forecast only</text>
+<text x="299.0" y="673.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">no predictive law is stated</text>
+<text x="299.0" y="689.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">not scored on the interval criteria</text>
+<rect x="434.0" y="636" width="486" height="64" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
+<text x="677.0" y="658.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Predictive distribution</text>
+<text x="677.0" y="673.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">MC dropout · quantile head</text>
+<text x="677.0" y="689.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">retransformed to the mean scale (Eq. 3.4)</text>
 <rect x="182" y="766" width="234" height="94" rx="4" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.1"/>
 <text x="299.0" y="802.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12.8" font-weight="600" fill="#1a1a1a">Point accuracy</text>
 <text x="299.0" y="817.5" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#6b6b6b">QLIKE (Eq. 3.7) · MSE</text>
@@ -92,17 +97,15 @@
 <path d="M 886.0 392 L 886.0 467" fill="none" stroke="#4a4a4a" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#ah2)"/>
 <text x="877.0" y="416" text-anchor="end" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11" font-style="italic" fill="#4a4a4a">regime signal</text>
 <path d="M 934 364.0 L 946 364.0 L 946 900 L 551.0 900 L 551.0 863" fill="none" stroke="#4a4a4a" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#ah2)"/>
-<path d="M 299.0 574 L 299.0 639" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
-<path d="M 551.0 574 L 551.0 639" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
-<path d="M 803.0 574 L 803.0 639" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
-<path d="M 551.0 696 L 551.0 726 L 299.0 726" fill="none" stroke="#1a1a1a" stroke-width="1.2"/>
-<path d="M 551.0 726 L 803.0 726" fill="none" stroke="#1a1a1a" stroke-width="1.2"/>
-<circle cx="299.0" cy="726" r="2.6" fill="#1a1a1a"/>
-<path d="M 299.0 726 L 299.0 763" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
-<circle cx="551.0" cy="726" r="2.6" fill="#1a1a1a"/>
-<path d="M 551.0 726 L 551.0 763" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
-<circle cx="803.0" cy="726" r="2.6" fill="#1a1a1a"/>
-<path d="M 803.0 726 L 803.0 763" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
-<path d="M 24 316 L 16 316 L 16 716 L 24 716" fill="none" stroke="#4a4a4a" stroke-width="1"/>
-<text x="11" y="516.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11.5" fill="#4a4a4a" transform="rotate(-90 11 516.0)">anchored walk-forward over the test block</text>
+<path d="M 299.0 574 L 299.0 635" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
+<path d="M 551.0 574 L 551.0 635" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
+<path d="M 803.0 574 L 803.0 635" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
+<path d="M 299.0 700 L 299.0 730 L 551.0 730 L 551.0 700" fill="none" stroke="#1a1a1a" stroke-width="1.2"/>
+<circle cx="299.0" cy="730" r="2.6" fill="#1a1a1a"/>
+<path d="M 299.0 730 L 299.0 763" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
+<circle cx="551.0" cy="730" r="2.6" fill="#1a1a1a"/>
+<path d="M 551.0 730 L 551.0 763" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
+<path d="M 803.0 700 L 803.0 763" fill="none" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#ah)"/>
+<path d="M 24 316 L 16 316 L 16 718 L 24 718" fill="none" stroke="#4a4a4a" stroke-width="1"/>
+<text x="11" y="517.0" text-anchor="middle" font-family="Segoe UI,Calibri,Helvetica,Arial,sans-serif" font-size="11.5" fill="#4a4a4a" transform="rotate(-90 11 517.0)">anchored walk-forward: one forecast produced per origin</text>
 </svg>
