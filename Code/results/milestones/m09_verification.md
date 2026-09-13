@@ -1,6 +1,6 @@
 # m09 - Reproducibility gate
 
-_Generated 2026-09-04 01:27 UTC. Relative tolerance 1e-09._
+_Generated 2026-09-13 03:00 UTC. Relative tolerance 1e-09._
 
 Every number below was recomputed **from the prediction parquets** by code that imports nothing from `src.evaluation`, and compared with what the published table says. The duplication of the metric formulas is deliberate: calling the project's own functions would check that a CSV matches what those functions return today, and agree enthusiastically with a regression in the functions themselves.
 

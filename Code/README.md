@@ -1,10 +1,9 @@
 # Regime-Aware Deep Learning for Financial Volatility Forecasting with Uncertainty Quantification
 
 Code for the MSc dissertation of the same name (University of Warwick, WMG, MSc Applied
-Artificial Intelligence). The plan-of-record — every methodological decision, its reasoning, and
-the dated changelog — is [../ROADMAP.md](../ROADMAP.md). This file is the **reproduction guide**:
-what the study needs, how to run it, what it writes, and how to check that what it wrote is what
-the dissertation reports.
+Artificial Intelligence). The repository overview and the headline findings are in
+[../README.md](../README.md). This file is the **reproduction guide**: what the study needs, how
+to run it, what it writes, and how to check that what it wrote is what the dissertation reports.
 
 ---
 
